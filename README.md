@@ -1,3 +1,76 @@
-# SITASI Wisuda Sync — Phase 4 Starter Pack
+# ITCC Wisuda Sync — Phase 4 Starter
 
-Buka `README_PHASE4.md` untuk langkah implementasi.
+Starter lokal untuk import data master SITASI dan Certiport melalui alur Next.js → FastAPI → Supabase. Phase ini belum mencakup login, matching Wisuda, review, atau export final.
+
+## Prasyarat Windows
+
+- Python 3.12
+- Node.js 22 dan npm 10
+- PowerShell
+- Supabase lokal/development hanya diperlukan untuk mencoba endpoint import; health check dapat memakai konfigurasi dummy.
+
+## 1. Siapkan backend
+
+Jalankan dari root repository:
+
+```powershell
+py -3.12 -m venv backend\venv
+backend\venv\Scripts\python.exe -m pip install -r backend\requirements.lock.txt
+if (-not (Test-Path backend\.env)) { Copy-Item backend\.env.example backend\.env }
+```
+
+`backend/.env.example` hanya berisi nilai dummy. Untuk mencoba import, ubah `backend/.env` memakai URL dan server key dari Supabase development yang berizin. Jangan commit file tersebut.
+
+Jalankan API pada terminal pertama:
+
+```powershell
+Set-Location backend
+.\venv\Scripts\Activate.ps1
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Periksa health dari terminal lain:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
+```
+
+## 2. Siapkan frontend
+
+Jalankan dari root repository:
+
+```powershell
+Set-Location frontend
+npm ci
+if (-not (Test-Path .env.local)) { Copy-Item .env.local.example .env.local }
+npm run dev
+```
+
+Buka `http://localhost:3000/sitasi` atau `http://localhost:3000/certiport`. Frontend memakai `NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1` untuk memanggil FastAPI.
+
+## 3. Pemeriksaan lokal
+
+Backend:
+
+```powershell
+Set-Location backend
+.\venv\Scripts\python.exe -m pytest -q
+```
+
+Frontend:
+
+```powershell
+Set-Location frontend
+npm run typecheck
+npm run build
+npm audit --audit-level=moderate
+```
+
+## Batas Phase 4
+
+- Gunakan hanya fixture anonim atau data dummy untuk pengujian lokal.
+- Endpoint import belum memiliki auth dan tidak boleh dibuka ke internet.
+- Konfigurasi dummy hanya mendukung health check, bukan operasi Supabase.
+- Mapping `Sertifikasi MOS`, `Sertifikasi MCF`, dan `Title Microsoft` belum disetujui dan tidak diisi otomatis.
+
+Detail implementasi tersedia di [`README_PHASE4.md`](README_PHASE4.md). Aturan agent tersedia di [`AGENTS.md`](AGENTS.md), sedangkan dokumentasi produk berada di [`docs/README.md`](docs/README.md).

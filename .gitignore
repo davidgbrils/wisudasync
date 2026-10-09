@@ -1,0 +1,24 @@
+# Python
+backend/.env
+backend/venv/
+data_wisuda.xlsx
+data_sitasi.xlsx
+data_certiport.xlsx
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/.env*.local
+*.tsbuildinfo
+
+# Editor dan sistem operasi
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Brud Code workspace history
+.brud/

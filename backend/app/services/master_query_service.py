@@ -3,6 +3,33 @@ from supabase import Client
 from app.services.import_service import get_active_import_id
 
 
+def get_active_import_summary(supabase: Client, data_type: str) -> dict | None:
+    response = (
+        supabase.table("data_imports")
+        .select("id,data_type,total_rows,imported_rows,status,created_at,completed_at")
+        .eq("data_type", data_type)
+        .eq("is_active", True)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not response.data:
+        return None
+    batch = response.data[0]
+    return {
+        field: batch.get(field)
+        for field in (
+            "id",
+            "data_type",
+            "total_rows",
+            "imported_rows",
+            "status",
+            "created_at",
+            "completed_at",
+        )
+    }
+
+
 def list_sitasi(
     supabase: Client,
     page: int = 1,

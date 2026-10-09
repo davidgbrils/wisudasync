@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -6,6 +7,7 @@ class Settings(BaseSettings):
     app_name: str = "ITCC Wisuda Synchronization API"
     app_env: str = "development"
     frontend_url: str = "http://localhost:3000"
+    max_upload_size_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
     supabase_url: str
     supabase_service_role_key: str
 

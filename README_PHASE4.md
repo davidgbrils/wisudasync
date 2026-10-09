@@ -32,41 +32,24 @@ Kolom:
 
 Buka SQL Editor Supabase lalu jalankan:
 
-`database/001_phase4_data_master.sql`
+`database/migrations/20260930120000_phase4_foundation.sql`
 
-Untuk project ini tabel data master sengaja tidak diberi akses langsung ke `anon` dan `authenticated`. FastAPI memakai service/server key.
+Setelah itu jalankan query read-only `database/checks/phase4_foundation_check.sql`. Tabel data master tidak diberi akses langsung ke `anon` dan `authenticated`; FastAPI memakai server key.
 
-## 2. Backend
+## 2. Backend di PowerShell Windows
 
-```bash
-cd backend
-python -m venv venv
+```powershell
+py -3.12 -m venv backend\venv
+backend\venv\Scripts\python.exe -m pip install -r backend\requirements.lock.txt
+if (-not (Test-Path backend\.env)) { Copy-Item backend\.env.example backend\.env }
+Set-Location backend
+.\venv\Scripts\Activate.ps1
 ```
 
-Windows:
+Template environment hanya berisi nilai dummy yang cukup untuk health check. Endpoint import membutuhkan Supabase development yang berizin.
 
-```bash
-venv\Scripts\activate
-```
-
-Install:
-
-```bash
-pip install -r requirements.txt
-```
-
-Copy environment:
-
-```bash
-copy .env.example .env
-```
-
-Isi URL dan server secret/service role key milik project Supabase.
-
-Run:
-
-```bash
-uvicorn app.main:app --reload
+```powershell
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 Buka:
@@ -95,13 +78,16 @@ Setelah berhasil:
 
 ## 4. Frontend
 
-File dalam folder `frontend/` adalah file Phase 4 yang ditempelkan ke project Next.js hasil `create-next-app` dari Phase 3.
+Folder `frontend/` sudah memiliki manifest Next.js dan lockfile. Jalankan dari root repository:
 
-Pastikan alias `@/*` aktif (default create-next-app TypeScript), lalu buat `.env.local`:
-
-```env
-NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+```powershell
+Set-Location frontend
+npm ci
+if (-not (Test-Path .env.local)) { Copy-Item .env.local.example .env.local }
+npm run dev
 ```
+
+`NEXT_PUBLIC_API_URL` pada `.env.local.example` mengarah ke `http://localhost:8000/api/v1`.
 
 Halaman:
 
