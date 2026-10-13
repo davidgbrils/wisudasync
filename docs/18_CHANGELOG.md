@@ -199,4 +199,268 @@ Penanggung jawab:
 - Menambahkan pengujian di `tests/test_export_gate.py` (6 test): penolakan ekspor final 403, keberhasilan ekspor draft dengan watermark label DRAFT, verifikasi dua sheet, dan proteksi otorisasi petugas.
 - Bukti: `pytest tests/test_export_gate.py` — 6 PASS; seluruh 134 backend test — PASS; `npm run typecheck` — PASS; `npm run build` — PASS; `git diff --check` — PASS.
 
-(End of file)
+## 2026-10-09 — Tahap 14: Export Excel sesuai approval (ADR gate)
+
+- Memastikan kepatuhan terhadap status lembar pengesahan `docs/20_OUTPUT_MAPPING_APPROVAL.md`.
+- Karena tanda tangan resmi pimpinan ITCC belum tersedia, ekspor final secara ketat dihentikan (`STOP final export` / HTTP 403 Forbidden).
+- Ekspor draft dengan OpenPyXL tetap beroperasi melayani pratinjau data dengan preservasi struktur baris dan kolom.
+- Bukti: `pytest tests/test_export_gate.py` — 6 PASS; seluruh 134 backend test — PASS.
+
+## 2026-10-09 — Tahap 15: Testing terintegrasi dan kualitas
+
+- Melakukan pengujian terintegrasi komprehensif mengikuti `docs/10_TEST_PLAN.md` dan kriteria `docs/15_ACCEPTANCE.md`.
+- Menjalankan 134 test backend (unit, integrasi, anomali payload, security) dengan hasil 100% PASS.
+- Menjalankan Next.js typecheck (`tsc --noEmit`) dan production build (`next build`) dengan hasil 100% PASS tanpa error kompilasi.
+- Menguji keamanan data: penolakan tanpa token (401), penolakan non-staf (403), sanitasi error database, pembatasan upload payload >10MB, dan penolakan workbook formula/makro.
+- Menerbitkan dokumen laporan resmi `docs/21_TEST_RESULTS.md` memuat matriks 24 test case dan bukti eksekusi aktual.
+- Bukti: `pytest tests -v` — 134 PASS; `npm run typecheck` — PASS; `npm run build` — PASS.
+
+## 2026-10-09 — Tahap 16: Formulir UAT & persiapan serah terima
+
+- Menyusun `docs/22_UAT_FORM.md`: 34 skenario UAT petugas (login, logout, kontrol akses, impor master, upload Wisuda, multi-attempt, konflik nama, verifikasi manual, ekspor, sesi lama) dengan kolom kasus, expected, actual, bukti screenshot disensor, keputusan petugas, dan tanggal.
+- Menetapkan aturan data UAT: fixture sintetis anonim wajib; data asli hanya atas izin tertulis dan tidak di-commit/di-publikasikan.
+- Menambahkan tinjauan kontrol akses, audit, kebijakan retensi/backup (ADR-007), performa aktual, pemetaan output yang disetujui (ADR-003/005/006/010/011), dan pemetaan ke checklist penerimaan `docs/15_ACCEPTANCE.md`.
+- Menandai status **BELUM SIAP PRODUCTION** dan larangan deployment sampai UAT dijalankan, SQL/RLS tereksekusi, dan lembar pengesahan UAT ditandatangani.
+- Bukti: `pytest tests -q` — 134 PASS (2.87 s); `npm run typecheck` — PASS. Skenario UAT browser BELUM DIJALANKAN (menunggu lingkungan Supabase development berizin).
+
+## 2026-10-09 — Tahap 17: Runbook deployment dev/staging/production & tata kelola operasional
+
+- Memperbarui `docs/17_OPERATIONS.md` menjadi runbook operasional dan arsitektur deployment resmi.
+- Menetapkan pemisahan 3 lingkungan (Dev lokal, Staging VPN internal, Production internal kampus) dengan isolasi database dan private storage bucket.
+- Mendefinisikan arsitektur hosting aman: Next.js Node container, FastAPI Python di balik reverse proxy Nginx (timeout 120s, upload 15MB buffering), serta Supabase RLS deny-all by default.
+- Menetapkan tata kelola rahasia: larangan commit credential, penggunaan secret manager runtime, dan pemisahan service key server-only vs anon key publik.
+- Mengatur pembatasan CORS ketat, sanitasi logging tanpa PII (tanpa NIM/nama mahasiswa mentah), automated daily backup PITR, snapshot pre-migration, skrip rollback database teruji, dan health monitoring (`GET /api/v1/health`).
+- Menyusun protokol 5 langkah dry-run staging sebelum penerapan ke production.
+- Menandai status deployment live: **TERBLOKIR** (menunggu instruksi tertulis pemilik, pengesahan ADR output mapping, dan UAT selesai). Tidak ada klaim URL live fiktif.
+
+## 2026-10-09 — Tahap 18: Dokumentasi akhir & laporan magang
+
+- Menyusun `docs/23_USER_MANUAL.md`: manual petugas untuk alur upload → review → export, termasuk pembatasan ekspor final dan penanganan masalah umum.
+- Menyusun `docs/24_OPERATOR_GUIDE.md`: panduan import/batch atomik, prosedur backup & recovery, kontrol akses/audit, daftar library & versi aktual, serta 13 limitasi terbuka.
+- Menyusun `docs/25_LAPORAN_MAGANG.md`: kerangka BAB I–V mengikuti `docs/13_REPORT_MAGANG.md`, matriks fitur→file kode→test→bukti→bagian laporan, status akhir, daftar keputusan yang memerlukan institusi, dan pernyataan kejujuran data.
+- Menyinkronkan `docs/07_DATABASE_DESIGN.md` (ERD sesuai 8 tabel aktual + status implementasi) dan `docs/08_API_CONTRACT.md` (status endpoint aktual).
+- Menyinkronkan `README.md` root dan indeks `docs/README.md` dengan status terkini.
+- Tidak ada perubahan kode aplikasi; hanya dokumentasi. Bukti: `pytest -q` — 134 PASS; `npm run typecheck` — PASS. UAT runtime tetap BELUM DIJALANKAN.
+
+## 2026-10-09 — Fitur: Registrasi akun petugas di halaman login & pencatatan di database
+
+- Menambahkan tab/toggle "Masuk" dan "Daftar Akun" di halaman login (`frontend/app/login/page.tsx`).
+- Menambahkan input nama lengkap, email, kata sandi, dan konfirmasi kata sandi di formulir registrasi.
+- Mengintegrasikan registrasi melalui endpoint backend `POST /api/v1/auth/register` (`backend/app/api/v1/endpoints/auth.py`), yang secara aman membuat pengguna di Supabase Auth (auto-confirm) dan otomatis menyisipkan data profil di tabel `public.profiles` (`display_name`, `role = 'staff'`, `is_active = true`).
+- Menambahkan fungsi API helper `registerStaff` di `frontend/lib/api.ts`.
+- Menerapkan auto-login mulus sesudah pendaftaran berhasil ke sesi Supabase browser dan redirect langsung ke `/dashboard`.
+- Menyediakan migrasi trigger database `database/migrations/20261009180000_handle_new_user_profile.sql` untuk memastikan integritas sinkronisasi `auth.users` ke `public.profiles`.
+- Menambahkan 4 unit test di `backend/tests/test_auth.py` (registrasi sukses, penolakan email duplikat, validasi format email regex, dan validasi panjang password).
+- Bukti: `pytest tests/test_auth.py` — 15 PASS; seluruh 138 test backend — PASS; `npm run typecheck` — PASS; `npm run build` — PASS.
+
+## 2026-10-12 — Fitur: Landing page publik dan navbar masuk/daftar
+
+- Mengubah root `frontend/app/page.tsx` dari pengalihan ke `/dashboard` menjadi landing page publik berbahasa Indonesia: hero, fitur utama, cara kerja, penjelasan status hasil, ajakan, dan footer.
+- Menambahkan komponen `frontend/components/public-navbar.tsx`: navbar lengket dengan tautan bagian, tombol **Masuk** dan **Daftar**, serta menu seluler dengan atribut aksesibilitas (`aria-expanded`, `aria-controls`).
+- Memisahkan formulir login ke `frontend/components/login-form.tsx` dan menjadikan `frontend/app/login/page.tsx` sebagai pembungkus server yang membaca `searchParams.mode`, sehingga `/login?mode=register` langsung membuka tab pendaftaran.
+- Menambahkan tautan "Kembali ke beranda" pada halaman login.
+- Status hasil di landing page hanya penjelasan aturan; angka contoh diberi keterangan "hanya ilustrasi" agar tidak diklaim sebagai hasil uji.
+- Bukti: `npm run typecheck` — PASS.
+
+## 2026-10-12 — Fitur: Implementasi Design System Google Stitch (Swiss Minimalism + Enterprise Utility)
+
+- Mengadopsi secara menyeluruh 8 screen hasil rancangan Google Stitch (Project ID: `12724873765600380458`) ke dalam antarmuka aplikasi Next.js/Tailwind CSS:
+  1. Login & Registrasi Petugas (`01_LOGIN_SCREEN.md` / `frontend/components/login-form.tsx`)
+  2. Dashboard Ringkasan (`02_DASHBOARD_SCREEN.md` / `frontend/app/(dashboard)/dashboard/page.tsx`)
+  3. Master SITASI (`03_SITASI_MASTER_SCREEN.md` / `frontend/components/master-data-page.tsx`)
+  4. Master Certiport (`04_CERTIPORT_MASTER_SCREEN.md` / `frontend/components/master-data-page.tsx`)
+  5. Upload & Validasi Wisuda (`05_WISUDA_UPLOAD_SCREEN.md` / `frontend/app/(dashboard)/sinkronisasi/page.tsx`)
+  6. Hasil Sinkronisasi (`06_SYNC_RESULTS_SCREEN.md` / `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`)
+  7. Panel Verifikasi Review ADR-009 (`07_RESULT_REVIEW_SCREEN.md` / `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`)
+  8. Riwayat Sinkronisasi (`08_SYNC_HISTORY_SCREEN.md` / `frontend/app/(dashboard)/riwayat/page.tsx`)
+- Mengonfigurasi token warna brand di `frontend/tailwind.config.ts`: latar `#F5F7F6`, permukaan `#FFFFFF`, teks utama `#172321`, teks sekunder `#66736F`, aksen primer `#0F766E`, aksen pekat `#0F4B46`, border halus `#DDE4E1`, dan active highlight `#ECFAF8`.
+- Mengintegrasikan tipografi Google Fonts resmi `IBM Plex Sans` dan `IBM Plex Mono` via `next/font/google` di `frontend/app/layout.tsx`.
+- Memperbarui layout shell (`frontend/app/(dashboard)/layout.tsx`) dan navigasi samping (`frontend/components/sidebar-nav.tsx`) dengan indikator border kiri 3px `#0F766E` dan pill badge aktif.
+- Menjaga integritas kontrak API, validasi otorisasi staff, dan logika autentikasi Supabase tanpa mengubah backend logic.
+- Bukti: `npm run typecheck` — PASS; `npm run build` — PASS (semua 8 route statis dan dinamis terkompilasi sukses tanpa error).
+
+## 2026-10-12 — Aset brand: crop brand board menjadi aset terpakai di UI
+
+- Menambahkan skrip `frontend/scripts/crop_brand_assets.py` yang memotong `asset.png` (brand board 1536×1024) menjadi aset brand siap pakai, lengkap dengan fungsi auto-trim latar putih, pemisahan baris menjadi item, dan pembuatan alpha untuk latar transparan.
+- Aset hasil di `frontend/public/brand/`: `logo-full.png` (logo lengkap transparan), `logo-mark.png` (cap tanpa teks), `app-icon.png` (tile ikon 256×256 transparan), `hero-banner.png` (banner gelap bersih, label anotasi dihapus), serta lima ikon fitur `icon-sitasi.png`, `icon-certiport.png`, `icon-wisuda.png`, `icon-sinkronisasi.png`, `icon-laporan.png`.
+- Menetapkan favicon via konvensi Next.js App Router: `frontend/app/icon.png` (dari tile favicon). Berkas `.ico` pihak ketiga yang gagal didekode Turbopack tidak dipakai.
+- Menerapkan logo di `frontend/components/public-navbar.tsx` dan header `frontend/app/(dashboard)/layout.tsx` (menggantikan badge teks "W"), serta tile ikon di badge `frontend/components/login-form.tsx`.
+- Menerapkan lima ikon fitur sebagai ikon modul di `frontend/components/sidebar-nav.tsx` (Ringkasan, Validasi Wisuda, Riwayat, Data SITASI, Data Certiport).
+- Menampilkan `hero-banner.png` pada hero landing `frontend/app/page.tsx` (membentang dua kolom grid).
+- Bukti: `npm run typecheck` — PASS; `npm run build` — PASS (`/icon.png` ter-generate); aset disajikan HTTP 200 oleh dev server (`/brand/*`, `/icon.png`).
+
+## 2026-10-12 — UI/UX & Responsive Design (Penerapan Panduan /ui-ux-pro-max)
+
+- Menyelesaikan masalah kekosongan layar (whitespace timpang) pada desktop/widescreen dan mengoptimalkan tata letak di seluruh ukuran layar (ponsel, tablet, laptop, dan monitor lebar).
+- Membuat komponen shell baru `frontend/components/dashboard-shell.tsx`:
+  - Sidebar desktop penuh (`lg:fixed`, 100vh) dengan brand header, navigasi link berikon, status sistem internal ITCC, serta kartu profil petugas & tombol keluar.
+  - Mobile header dan drawer slide-over (`lg:hidden`) dengan tombol hamburger menu (touch target >= 44x44px), overlay backdrop blur, penutupan otomatis saat rute berubah atau tombol ESC ditekan.
+  - Desktop topbar (`hidden lg:flex`) memuat breadcrumbs dinamis per rute halaman, badge status sistem, dan info petugas.
+  - Main content container yang fleksibel (`max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 xl:px-10`), mengisi ruang layar secara proporsional dan tidak terjepit di kiri-atas.
+- Memperbarui `frontend/components/logout-button.tsx` dengan varian `compact` dan `normal` berstandar touch target minimal 44pt serta ikon SVG bersih.
+- Memperbaiki `frontend/app/(dashboard)/dashboard/page.tsx`:
+  - Hero banner diperlebar dengan visual aksen teal enterprise, status pulse, dan tombol CTA langsung.
+  - Mengatasi tampilan kotak error kosong saat server belum siap: kartu status batch SITASI dan Certiport tetap ditampilkan terstruktur dalam grid 2 kolom dengan opsi pengecekan ulang.
+- Mengoptimalkan responsivitas pada modul Master Data (`frontend/components/master-data-page.tsx`), Validasi Wisuda (`frontend/app/(dashboard)/sinkronisasi/page.tsx`), Hasil Sinkronisasi (`frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`), dan Riwayat (`frontend/app/(dashboard)/riwayat/page.tsx`):
+  - Grid metrik KPI adaptif (2 kolom di ponsel/tablet, 4 kolom di desktop).
+  - Wrapper tabel `overflow-x-auto` dengan petunjuk geser horizontal di ponsel (`sm:hidden`).
+  - Tombol aksi dengan touch target minimal 44pt.
+- Bukti: `npm run typecheck` — PASS (0 errors); `npm run build` — PASS (semua 8 rute halaman terkompilasi sukses).
+
+## 2026-10-12 — Skill: Instalasi skill anti-ai-slop
+
+- Memasang skill `anti-ai-slop` dari repository `misbahsy/anti-ai-slop` ke `.agents/skills/anti-ai-slop/`.
+- Memuat instruksi pembersihan tulisan AI slop ([SKILL.md](file:///c:/Users/LENOVO/Documents/Project/wisudasync/.agents/skills/anti-ai-slop/SKILL.md)), panduan referensi reviewer dan voice (`references/`), skrip verifikasi linter deterministik (`scripts/slopcheck.py`, `scripts/sanitize.py`, `scripts/grade.py`), serta test suites (`tests/`).
+- Menguji skrip verifikasi: `python .agents/skills/anti-ai-slop/tests/test_slopcheck.py` — seluruh 26 pemeriksaan lulus (PASS).
+
+## 2026-10-12 — Refinement UI/UX & De-slop Design (Penerapan ui-ux-pro-max + anti-ai-slop)
+
+- Merapikan desain antarmuka dashboard agar bebas dari elemen AI slop (menghapus hero crypto/SaaS gelap berlebihan, kartu simetris tanpa data, dan kalimat pemasaran generik).
+- Mengimplementasikan layout pusat operasional staf ITCC bergaya Swiss Utility:
+  - Header operasional institusional dengan breadcrumb peran staf dan tombol aksi `+ Validasi Berkas Wisuda`.
+  - Stepper alur kerja 4 tahap (Master SITASI -> Master Certiport -> Pencocokan Wisuda -> Review & Ekspor).
+  - Kartu pemantauan status batch aktif SITASI dan Certiport dengan data baris terdata dan tombol akses langsung.
+  - Tabel sesi sinkronisasi terbaru (`recent sessions`) terintegrasi langsung di dashboard dengan status badge semantik dan tautan detail.
+  - Panel pedoman verifikasi operasional staf (aturan exact NIM, review manual ADR-009, dan kunci ekspor final ADR-003).
+- Melakukan audit dan scrubbing draf dokumen laporan magang (`docs/25_LAPORAN_MAGANG.md`) menggunakan linter deterministik skill `anti-ai-slop`:
+  - Menghapus 23 tanda em-dash (`—`), 21 format dekoratif bold mid-sentence, mengubah heading menjadi sentence-case, dan merapikan kalimat stub.
+  - Skor evaluasi `slopcheck.py` meningkat drastis dari 71.0/100 (C-, Gagal) menjadi 94.0/100 (Grade A, Lulus).
+- Bukti pengujian:
+  - `npm run typecheck` — PASS (0 errors).
+  - `npm run build` — PASS (10 rute Next.js terkompilasi optimal).
+  - `pytest -q` backend — 140 PASS (2.63 s).
+  - `slopcheck.py docs/25_LAPORAN_MAGANG.md` — Score: 94.0/100 (Grade A, PASS).
+
+## 2026-10-12 — Perbaikan impor Certiport: kolom `Full Name` berformula CONCATENATE
+
+- Memperbaiki `backend/app/services/import_service.py`: penolakan formula dipersempit ke **kolom wajib saja** (sebelumnya menolak formula di seluruh workbook), sesuai aturan yang didokumentasikan. Pemeriksaan dilakukan pada sheet target, bukan semua sheet.
+- Menambahkan pengecualian kolom `Full Name` Certiport yang lazim berupa formula `=CONCATENATE(...)` pada ekspor resmi: nilainya dibaca dari cache; bila cache tidak tersedia, diturunkan dari `First Name` + `Last Name`.
+- Memperbaiki pemeriksaan sel pada mode read-only agar tidak gagal pada `EmptyCell` (memakai indeks kolom posisional).
+- Menambahkan 2 test di `backend/tests/test_import_service.py`: `test_certiport_accepts_full_name_formula_and_derives_from_first_last` dan `test_certiport_rejects_formula_in_required_column`.
+- Menyelaraskan `docs/08_API_CONTRACT.md`, `docs/23_USER_MANUAL.md`, dan `docs/24_OPERATOR_GUIDE.md` dengan aturan baru.
+- Bukti: `pytest tests -q` — 140 PASS; `data_certiport.xlsx` asli berhasil di-parse (4047 baris).
+
+## 2026-10-12 — Peningkatan Engine Matching: Pengecekan Langsung Wisuda ke Certiport & SITASI
+
+- Memperbaiki alur pencocokan data wisuda agar tidak hanya bertumpu pada data SITASI sebagai prasyarat tunggal:
+  - Sistem kini mengecek identitas mahasiswa secara langsung ke **kedua sumber paralel**: exact NIM di SITASI dan nama ternormalisasi di Certiport.
+  - Menghapus pembatasan `SKIPPED` pada Certiport jika NIM tidak ditemukan di SITASI. Jika mahasiswa belum tercatat di SITASI tetapi memiliki sertifikat resmi di Certiport (PASS), rekaman Certiport tetap dibaca, dicatat sebagai bukti verifikasi, dan dikelompokkan ke program terkait (MOS/MCF) berstatus `PERLU_VERIFIKASI` dengan kode alasan `R14_CERTIPORT_ONLY`.
+  - Mengimplementasikan pembacaan ujian menyeluruh: jika mahasiswa memiliki ujian tambahan di Certiport yang belum terdata di SITASI (misal mengambil Excel dan PowerPoint padahal di SITASI hanya Word), rekaman Certiport tersebut tetap dibaca dan disajikan kepada petugas verifikator.
+  - Kasus benar-benar tidak ada di kedua sumber baru diklasifikasikan sebagai `DATA_TIDAK_DITEMUKAN`.
+- Menambahkan penanganan kanonikal nama sertifikasi (`_canonical_exam_name`) dan pemetaan kategori Certiport yang lebih tangguh (`_map_category_reverse`).
+- Menambahkan 4 unit test baru di `backend/tests/test_certiport_matching.py` dan `test_validation_engine.py` untuk memverifikasi pembacaan langsung Certiport tanpa rekaman SITASI serta pembacaan ujian ganda Certiport.
+- Bukti: `pytest -q` — 144 PASS (0 failed, 2.60 s); `npm run typecheck` — PASS; `npm run build` — PASS.
+
+## 2026-10-12 — Penyajian Skor Ujian SITASI/Certiport & Seleksi Multi-Attempt Lulus
+
+- Memperbarui `backend/app/services/matching_service.py`:
+  - Menambahkan konversi skor numerik yang aman (`_parse_numeric_score`).
+  - Mengembangkan logika agregasi multi-attempt (`_aggregate_exam_attempts`):
+    - Jika mahasiswa memiliki 2+ percobaan dan ada yang LULUS: sistem memprioritaskan dan memilih attempt LULUS dengan skor tertinggi.
+    - Jika hanya ada 1 percobaan dan belum lulus (atau seluruh attempt gagal): sistem tetap mencatat attempt tersebut dan mempertahankan skor terbaik yang diraih.
+  - Memperkaya ringkasan program sertifikasi (`_build_program_summary` dan `validate_wisuda_complete`) dengan skor program (`score`, `scores` per sub-ujian, `mos_score`, dan `mcf_score`).
+- Memperbarui `backend/app/services/sync_service.py`:
+  - Menyimpan nilai skor efektif (`match_score`) pada tabel `sync_evidence` baik bersumber dari SITASI maupun Certiport.
+- Mengembangkan antarmuka `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`:
+  - Menambahkan fungsi pembantu visualisasi `formatScoreBadges` berstandar Swiss Utility yang bersih dan bebas AI slop.
+  - Menampilkan badge skor ujian pada kolom **Status MOS** dan **Status MCF** di tabel hasil verifikasi secara rapi dan selaras.
+  - Menambahkan kartu ringkasan evaluasi program MOS dan MCF lengkap dengan skor pada modal dialog detail verifikasi silang mahasiswa.
+  - Memperjelas badge nilai ujian per sub-program pada daftar bukti sumber.
+- Menambahkan 3 unit test komprehensif di `backend/tests/test_validation_engine.py`:
+  - `test_multi_attempt_picks_passing_attempt_with_highest_score`
+  - `test_single_attempt_not_passing_preserves_score`
+  - `test_all_attempts_failed_picks_highest_score`
+- Bukti:
+  - `pytest -q` backend — 147 PASS (1 warning Starlette deprecation, 2.68 s).
+  - `npm run typecheck` — PASS (0 errors).
+  - `npm run build` — PASS (semua 10 rute Next.js terkompilasi optimal).
+
+## 2026-10-13 — Penyajian Ganda Nama & Skor Mahasiswa (SITASI dan Certiport) pada Detail Verifikasi
+
+- Memperbarui `backend/app/services/matching_service.py`:
+  - Memperkaya `exam_details` pada `_build_program_summary` dengan atribut sumber `sitasi_name`, `sitasi_status`, `certiport_name`, dan `certiport_status`.
+  - Menyertakan `sitasi_name` dan `certiport_name` pada ringkasan program sertifikasi (`summary[program]`).
+- Memperbarui `backend/app/services/sync_service.py`:
+  - Memperkaya respon `get_sync_result_detail` agar setiap item di `evidence` memuat nama mahasiswa, skor, dan status kelulusan dari kedua basis data (SITASI dan Certiport).
+- Memperbarui `frontend/lib/api.ts`:
+  - Menambahkan definisi field `sitasi_name`, `sitasi_score`, `sitasi_status`, `certiport_name`, `certiport_score`, `certiport_status` pada tipe `SyncEvidenceItem`.
+- Memperbarui `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`:
+  - Merancang ulang tampilan modal detail bukti dengan tata letak grid dua kolom (*Swiss Enterprise Utility*):
+    - Kolom kiri: **Basis Data SITASI (Exact NIM)** — menampilkan nama terdaftar, skor ujian, status attempt, dan nomor baris SITASI.
+    - Kolom kanan: **Sertifikat Certiport (Pencocokan Nama)** — menampilkan nama lengkap terdaftar, skor ujian, hasil PASS/FAIL, dan nomor baris Certiport.
+    - Menampilkan nama dan status kedua sumber pada kartu ringkasan program MOS dan MCF di modal.
+- Menambahkan unit test di `backend/tests/test_validation_engine.py`:
+  - `test_detail_contains_sitasi_and_certiport_names_and_scores` memvalidasi kelengkapan nama, skor, dan status kedua sumber.
+- Bukti pengujian:
+  - `pytest -q` backend — 148 PASS (0 failed, 1 warning, 2.84 s).
+  - `npm run typecheck` — PASS (0 errors).
+  - `npm run build` — PASS (semua 10 rute Next.js terkompilasi optimal).
+
+## 2026-10-13 — Perbaikan Atribuasi Skor Sumber Certiport-Only pada Modal Detail
+
+- Memperbaiki akar masalah di mana skor sertifikasi Certiport keliru ditampilkan di kolom "Basis Data SITASI" pada mahasiswa yang hanya memiliki rekaman Certiport:
+  - `backend/app/services/matching_service.py`: Memastikan rekaman bertipe `certiport_only` tidak mengisi `sitasi_score`, `sitasi_name`, atau `sitasi_status` ke dalam `exam_details`.
+  - `backend/app/services/sync_service.py`: Memperbaiki logika perkayan `evidence` di `get_sync_result_detail`. Jika `certiport_row_id` ada dan `sitasi_row_id` null, `match_score` diatribusikan ke `certiport_score` dan SITASI dinyatakan kosong.
+  - `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`: Memperbaiki kondisi `hasSitasi` dan `hasCertiport` serta fallback skor agar kotak SITASI menampilkan *"Tidak ada rekaman attempt di data SITASI"*, dan kotak Certiport secara benar menampilkan Nama, Skor (misal 775), dan Hasil PASS.
+- Bukti pengujian:
+  - `pytest -q` backend — 148 PASS.
+  - `npm run typecheck` — PASS.
+  - `npm run build` — PASS.
+
+## 2026-10-13 — Uji E2E browser (Playwright) & perbaikan bug CORS PATCH + nama file ekspor
+
+- Menjalankan uji end-to-end memakai Playwright CLI + Chromium dengan akun petugas dummy dan berkas `data_*.xlsx` proyek (login, dashboard, validasi wisuda, sinkronisasi, review, ekspor, riwayat, logout, proteksi rute).
+- **Bug kritis — keputusan review tidak dapat disimpan:** simpan review memakai `PATCH`, sedangkan CORS hanya mengizinkan `GET, POST, OPTIONS` sehingga preflight ditolak (`net::ERR_FAILED`). Diperbaiki di `backend/app/main.py` (`allow_methods` ditambah `PATCH`).
+- **Nama berkas ekspor DRAFT berganda:** `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx` menambahkan `.xlsx` pada `file_name` yang sudah berekstensi → `wisuda_sync_draft_data_wisuda.xlsx.xlsx`. Kini ekstensi lama dibuang lebih dulu.
+- Menambahkan test `test_cors_preflight_allows_patch_for_review` di `backend/tests/test_sync_api.py`.
+- Klarifikasi: `needs_review=True` untuk baris `DATA_TIDAK_DITEMUKAN` **bukan bug** — perilaku ini disengaja dan diuji (`test_sync_service.py`, `test_validation_engine.py`), sehingga tidak diubah.
+- Bukti: `pytest tests -q` — 149 PASS; `npm run typecheck` — PASS; `npm run build` — PASS; preflight `PATCH` pada instance berperbaikan → 200 (`access-control-allow-methods: GET, POST, PATCH, OPTIONS`); `PATCH` review → 200.
+
+## 2026-10-13 — Tabel hasil sinkronisasi sesuai format Wisuda (No, Kode Prodi, Program Studi, MOS, MCF, Title)
+
+- Mengubah tabel hasil sinkronisasi agar menyesuaikan struktur kolom di `data_wisuda.xlsx`: No, Kode Prodi, Program Studi, NIM, Nama, Sertifikasi MOS, Sertifikasi MCF (untuk prodi 31/32), dan Title Microsoft.
+- Menambahkan kolom `kode_prodi` dan `program_studi` pada tabel `sync_results` via migration `20261013150000_sync_results_add_prodi.sql`.
+- `backend/app/services/wisuda_validation_service.py`: `parse_wisuda_for_sync` kini mengekstrak kolom Kode Prodi dan Program Studi dari workbook wisuda.
+- `backend/app/services/matching_service.py`: Meneruskan field `kode_prodi` dan `program_studi` dari wisuda rows ke result dict.
+- `backend/app/services/sync_service.py`: Menyimpan `kode_prodi` dan `program_studi` ke `sync_results`. Mengisi kolom prodi pada export DRAFT.
+- `frontend/lib/api.ts`: Menambah field `kode_prodi` dan `program_studi` pada tipe `SyncResultItem`.
+- `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`:
+  - Tabel menampilkan kolom No, Kode Prodi, Program Studi, NIM, Nama, Sertifikasi MOS, Sertifikasi MCF, Title Microsoft, dan Aksi.
+  - Kolom MOS/MCF menampilkan status, skor dari SITASI (label `S:`), dan skor dari Certiport (label `C:`) secara terpisah.
+  - Kolom MCF menampilkan N/A untuk prodi selain 31/32 (Informatika/Sistem Informasi).
+  - Kolom Title Microsoft menampilkan Microsoft Office Specialist dan/atau Microsoft Certified: Fundamentals berdasarkan status lulus.
+  - Status data tidak ditemukan dan perlu verifikasi ditampilkan di kolom Title Microsoft.
+- Bukti: `pytest -q` — 149 PASS; `npm run typecheck` — PASS; `npm run build` — PASS (10 rute terkompilasi).
+
+## 2026-10-13 — Master Data Pemetaan Kode NIM ke Program Studi (prodi_mapping.json)
+
+- Membuat file master konfigurasi JSON pemetaan Kode NIM terhadap 19 Program Studi ITPLN (termasuk jenjang S2 dan Profesi sesuai `data_wisuda.xlsx`):
+  - `backend/app/core/prodi_mapping.json`: Master data prodi untuk backend (19 program studi, daftar kode wajib MCF: 31 dan 32, mencakup kode 10 untuk S2 Teknik Elektro, 20/40 S2 Teknik Mesin, 30 S2 Ilmu Komputer, 80 Profesi Insinyur).
+  - `frontend/lib/prodi_mapping.json`: Master data prodi untuk frontend UI.
+- `backend/app/core/prodi.py`: Helper loader JSON, ekstraksi kode prodi langsung dari NIM (2 digit setelah 4 digit tahun angkatan, misal 202331243 -> '31', 202110039 -> '10'), lookup nama prodi resmi, dan pengecekan kelayakan MCF.
+- `backend/app/services/wisuda_validation_service.py`: Auto-resolve `kode_prodi` dan `program_studi` dari NIM saat parsing data wisuda.
+- `backend/app/services/matching_service.py`: Auto-resolve `kode_prodi` dan `program_studi` saat membangun hasil matching mahasiswa.
+- `backend/app/services/sync_service.py`: Ekstraksi prodi dari NIM saat insert sync results, list results, get detail, dan export DRAFT Excel.
+- `frontend/lib/prodi.ts`: Utilitas frontend `resolveKodeProdiFromNim` mengekstrak 2 digit setelah tahun angkatan di NIM, dan `getProgramStudiName` dengan dukungan fallback.
+- `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`: Menggunakan ekstraksi prodi langsung dari NIM pada tabel dan menampilkan nama Program Studi pada modal rincian evaluasi mahasiswa.
+- `backend/tests/test_prodi.py`: 4 unit test memverifikasi 19 program studi, ekstraksi NIM (202331243 -> 31 -> S1 Teknik Informatika, 202110039 -> 10 -> S2 Teknik Elektro).
+- Bukti: `pytest tests -q` — 153 PASS; `npm run typecheck` — PASS; `npm run build` — PASS (10 rute Next.js terkompilasi optimal).
+
+## 2026-10-13 — Perbaikan .gitignore (secret, log, artefak lokal)
+
+- Melengkapi `.gitignore`: `frontend/.env` + `frontend/.env.local` (sebelumnya hanya `.env*.local`, file `frontend/.env` berisi URL Supabase nyaris ter-push), `*.xlsx`/`*.xls`/`data/`, `*.log`, `.playwright-cli/` (log + draft xlsx berisi data mahasiswa), `.commandcode/`, `.kilo/`, `asset.png`, `venv/`/`backend/.venv/`, `frontend/out|build`, `dist/`, `.turbo/`, coverage.
+- Untrack 3 file `.pyc` (`__pycache__`) yang terlanjur ter-commit; aturan ignore `__pycache__`/`*.py[cod]` sudah ada.
+- Yang tetap boleh di-push: `.env.example`, `database/*.sql`, `design/stitch-prompts/*`, `frontend/public/brand/*`, skill baru `.agents/skills/anti-ai-slop/*`, kode prodi baru.
+- Bukti: `git check-ignore` cocok untuk `frontend/.env`, `backend/.env`, `data_*.xlsx`, `.pytest_cache`, `.playwright-cli/*`, `.commandcode/*`, `asset.png`, `*.log`; `git ls-files` tidak lagi memuat `.pyc`.
+
+## 2026-10-13 — Revisi aturan pencocokan: SITASI cukup (NIM+nama) & fallback Certiport
+
+- Menyesuaikan mesin `backend/app/services/matching_service.py` dengan ketentuan pemilik:
+  - Cocok di SITASI hanya bila **NIM dan nama** sama (flag `sitasi_matched`). Bila cocok, status LULUS/TIDAK LULUS + skor dari SITASI **sudah cukup** (Certiport tidak wajib).
+  - Bila tidak cocok di SITASI → cek Certiport berdasarkan nama; nama tepat & unik menentukan status (`PASS`→VALID, `FAIL`→TIDAK_LULUS).
+  - Kandidat nama mirip memakai fuzzy **per kata** (`ratio`/`partial_ratio`/`token_sort_ratio`/`token_set_ratio`, ambang 85) dan ditampilkan sebagai saran pada catatan review; ambiguitas nyata dinilai dari skor ≥ 95.
+  - Duplikat/tertimpa/konflik antar sumber → `PERLU_VERIFIKASI`.
+  - `DATA_TIDAK_DITEMUKAN` hanya bila tidak ada di SITASI maupun Certiport.
+  - MCF hanya dievaluasi untuk prodi relevan (`is_mcf_relevant`, kode `31`/`32`); di luar itu `mcf_status = null`.
+- Menyesuaikan/menambah test: `test_validation_engine.py`, `test_certiport_matching.py` (kasus NIM+nama, SITASI cukup, fallback Certiport, saran nama mirip, gate MCF).
+- Bukti: `pytest tests -q` — 157 PASS.

@@ -2,7 +2,7 @@
 
 **Versi dokumen:** 1.0-draft · **Tanggal:** 30 September 2026  
 **Jenis proyek:** Project magang mahasiswa · **Bahasa:** Indonesia  
-**Status implementasi:** Phase 4 starter tersedia; Phase 5 dan fitur berikutnya dalam perencanaan.
+**Status implementasi:** backend & frontend terimplementasi dan lulus 134 test otomatis (fixture) + typecheck + build. **Belum siap production** — migrasi SQL/RLS belum dieksekusi pada Supabase, UAT browser belum dijalankan, ekspor final terkunci.
 
 ## Ringkasan
 Sistem web internal untuk membantu petugas ITCC memproses Excel data wisuda, mencocokkannya menggunakan **NIM** ke riwayat SITASI, memvalidasi hasil sertifikasi terhadap ekspor Certiport yang **tidak memiliki NIM**, meninjau kasus ambigu, dan mengekspor Excel dengan kolom sertifikasi. Tidak ada koneksi langsung atau scraping ke website SITASI maupun Certiport dalam MVP; kedua sumber diimpor dari file Excel resmi yang disediakan petugas.
@@ -28,6 +28,13 @@ Sistem web internal untuk membantu petugas ITCC memproses Excel data wisuda, men
 17. [16 Glosarium](16_GLOSSARY.md)
 18. [17 Panduan Operasional](17_OPERATIONS.md)
 19. [18 Catatan Perubahan](18_CHANGELOG.md)
+20. [19 Progres AI](19_AI_PROGRESS.md)
+21. [20 Gate Output Mapping](20_OUTPUT_MAPPING_APPROVAL.md)
+22. [21 Laporan Hasil Pengujian](21_TEST_RESULTS.md)
+23. [22 Formulir UAT](22_UAT_FORM.md)
+24. [23 User Manual Petugas](23_USER_MANUAL.md)
+25. [24 Panduan Operator](24_OPERATOR_GUIDE.md)
+26. [25 Laporan Magang](25_LAPORAN_MAGANG.md)
 
 Untuk pengembangan memakai AI coding agent, baca [`AGENTS.md`](../AGENTS.md) **sebelum meminta AI mengubah kode**.
 

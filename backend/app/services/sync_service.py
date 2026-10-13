@@ -21,6 +21,7 @@ from app.services.matching_service import (
     validate_wisuda_complete,
 )
 from app.services.wisuda_validation_service import parse_wisuda_for_sync
+from app.core.prodi import resolve_kode_prodi, resolve_program_studi
 
 
 class SyncBatchMissingError(ValueError):
@@ -154,12 +155,18 @@ def create_and_execute_sync(
                 if nama_sitasi:
                     break
 
+            nim_val = str(r["nim"])
+            kode_prodi_val = resolve_kode_prodi(nim_val, r.get("kode_prodi"))
+            prodi_val = resolve_program_studi(kode_prodi_val, r.get("program_studi"))
+
             results_to_insert.append({
                 "id": result_id,
                 "sync_session_id": session_id,
                 "source_row": r["source_row"],
-                "nim": str(r["nim"]),
+                "nim": nim_val,
                 "nama_wisuda": str(r["nama"]),
+                "kode_prodi": kode_prodi_val,
+                "program_studi": prodi_val,
                 "nama_sitasi": nama_sitasi,
                 "name_match_type": r.get("name_match"),
                 "mos_status": r.get("mos_status"),
@@ -179,12 +186,15 @@ def create_and_execute_sync(
                 e_status = cv.get("combined_status", exam.get("exam_status"))
                 e_reason = cv.get("reason", exam.get("reason", ""))
 
-                sitasi_ev = exam.get("lulus_evidence") or (exam.get("attempts", [{}])[0] if exam.get("attempts") else {})
+                sitasi_ev = exam.get("lulus_evidence") or exam.get("selected_attempt") or (exam.get("attempts", [{}])[0] if exam.get("attempts") else {})
                 sit_row_id = sitasi_ev.get("id")
 
                 cert_ev_list = cv.get("certiport_evidence", [])
                 cert_row_id = cert_ev_list[0].get("id") if cert_ev_list else None
-                score = cert_ev_list[0].get("score") if cert_ev_list else None
+
+                sit_score = sitasi_ev.get("nilai")
+                cert_score = cert_ev_list[0].get("score") if cert_ev_list else None
+                score = sit_score if sit_score is not None else cert_score
 
                 evidence_to_insert.append({
                     "id": str(uuid.uuid4()),
@@ -193,7 +203,7 @@ def create_and_execute_sync(
                     "exam": sub,
                     "sitasi_row_id": sit_row_id,
                     "certiport_row_id": cert_row_id,
-                    "match_method": "NIM_EXACT+NAME_FUZZY",
+                    "match_method": "NIM_EXACT+NAME_CERTIPORT",
                     "match_score": score,
                     "evidence_status": e_status,
                     "reason": e_reason,
@@ -321,6 +331,12 @@ def list_sync_results(
     response = query.execute()
 
     items = response.data or []
+    for it in items:
+        if not it.get("kode_prodi"):
+            it["kode_prodi"] = resolve_kode_prodi(it.get("nim"))
+        if not it.get("program_studi"):
+            it["program_studi"] = resolve_program_studi(it.get("kode_prodi"))
+
     total = response.count if response.count is not None else len(items)
 
     return {
@@ -357,7 +373,78 @@ def get_sync_result_detail(
         .order("created_at")
         .execute()
     )
-    result_row["evidence"] = ev_resp.data or []
+    raw_evidence = ev_resp.data or []
+
+    programs_map = {
+        "MOS": result_row.get("mos_programs") or {},
+        "MCF": result_row.get("mcf_programs") or {},
+    }
+
+    enriched_evidence = []
+    for ev in raw_evidence:
+        cat = (ev.get("category") or "").upper()
+        exam_name = ev.get("exam") or ""
+        prog_data = programs_map.get(cat, {})
+        exam_details = prog_data.get("exam_details", []) if isinstance(prog_data, dict) else []
+
+        matched_detail = next(
+            (d for d in exam_details if str(d.get("sub_program", "")).upper() == str(exam_name).upper()),
+            None
+        )
+
+        ev_copy = dict(ev)
+        has_sitasi_row = ev.get("sitasi_row_id") is not None
+        has_cert_row = ev.get("certiport_row_id") is not None
+
+        if matched_detail:
+            ev_copy["sitasi_name"] = matched_detail.get("sitasi_name") if has_sitasi_row else None
+            ev_copy["sitasi_score"] = matched_detail.get("sitasi_score") if has_sitasi_row else None
+            ev_copy["sitasi_status"] = matched_detail.get("sitasi_status") if has_sitasi_row else None
+
+            ev_copy["certiport_name"] = matched_detail.get("certiport_name") if has_cert_row else None
+            ev_copy["certiport_score"] = matched_detail.get("certiport_score") if has_cert_row else None
+            ev_copy["certiport_status"] = matched_detail.get("certiport_status") if has_cert_row else None
+        else:
+            ev_copy["sitasi_name"] = result_row.get("nama_sitasi") if has_sitasi_row else None
+            ev_copy["sitasi_score"] = None
+            ev_copy["sitasi_status"] = None
+            ev_copy["certiport_name"] = None
+            ev_copy["certiport_score"] = None
+            ev_copy["certiport_status"] = None
+
+        # Fallback atribuasi skor yang tepat untuk rekaman tunggal / sesi yang sudah ada
+        if has_cert_row and not has_sitasi_row:
+            ev_copy["sitasi_name"] = None
+            ev_copy["sitasi_score"] = None
+            ev_copy["sitasi_status"] = None
+            if ev_copy.get("certiport_score") is None:
+                ev_copy["certiport_score"] = ev.get("match_score")
+            if not ev_copy.get("certiport_name"):
+                ev_copy["certiport_name"] = result_row.get("nama_wisuda")
+            if not ev_copy.get("certiport_status"):
+                ev_status_upper = str(ev.get("evidence_status", "")).upper()
+                ev_copy["certiport_status"] = "FAIL" if "FAIL" in ev_status_upper else "PASS"
+        elif has_sitasi_row and not has_cert_row:
+            ev_copy["certiport_name"] = None
+            ev_copy["certiport_score"] = None
+            ev_copy["certiport_status"] = None
+            if ev_copy.get("sitasi_score") is None:
+                ev_copy["sitasi_score"] = ev.get("match_score")
+            if not ev_copy.get("sitasi_name"):
+                ev_copy["sitasi_name"] = result_row.get("nama_sitasi") or result_row.get("nama_wisuda")
+        elif has_sitasi_row and has_cert_row:
+            if not ev_copy.get("sitasi_name"):
+                ev_copy["sitasi_name"] = result_row.get("nama_sitasi") or result_row.get("nama_wisuda")
+            if not ev_copy.get("certiport_name"):
+                ev_copy["certiport_name"] = result_row.get("nama_wisuda")
+            if ev_copy.get("certiport_score") is None and ev.get("match_score") is not None:
+                ev_copy["certiport_score"] = ev.get("match_score")
+            if ev_copy.get("sitasi_score") is None and ev.get("match_score") is not None:
+                ev_copy["sitasi_score"] = ev.get("match_score")
+
+        enriched_evidence.append(ev_copy)
+
+    result_row["evidence"] = enriched_evidence
 
     audit_resp = (
         supabase.table("review_audit")
@@ -367,6 +454,10 @@ def get_sync_result_detail(
         .execute()
     )
     result_row["review_history"] = audit_resp.data or []
+
+    kp = resolve_kode_prodi(result_row.get("nim"), result_row.get("kode_prodi"))
+    result_row["kode_prodi"] = kp
+    result_row["program_studi"] = resolve_program_studi(kp, result_row.get("program_studi"))
 
     return result_row
 
@@ -584,11 +675,15 @@ def generate_sync_export_workbook(
 
         title_text = "[DRAFT] MOS" if mos_status == VALID else ("—" if not mcf_status == VALID else "[DRAFT] MCF")
 
+        nim_val = r.get("nim", "")
+        kode_prodi_val = r.get("kode_prodi") or resolve_kode_prodi(nim_val)
+        prodi_val = r.get("program_studi") or resolve_program_studi(kode_prodi_val)
+
         row_values = [
             idx,
-            "",  # Kode Prodi
-            "",  # Program Studi
-            r.get("nim", ""),
+            kode_prodi_val,
+            prodi_val,
+            nim_val,
             r.get("nama_wisuda", ""),
             mos_text,
             mcf_text,

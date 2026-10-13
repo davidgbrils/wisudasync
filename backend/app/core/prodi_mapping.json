@@ -1,0 +1,102 @@
+{
+  "version": "1.1",
+  "description": "Master data pemetaan Kode NIM terhadap Program Studi di lingkungan ITPLN",
+  "mcf_required_codes": ["31", "32"],
+  "programs": {
+    "10": {
+      "nama": "S2 Teknik Elektro",
+      "jenjang": "S2",
+      "mcf_wajib": false
+    },
+    "11": {
+      "nama": "S1 Teknik Elektro",
+      "jenjang": "S1",
+      "mcf_wajib": false
+    },
+    "12": {
+      "nama": "S1 Teknik Mesin",
+      "jenjang": "S1",
+      "mcf_wajib": false
+    },
+    "14": {
+      "nama": "S1 Teknik Tenaga Listrik",
+      "jenjang": "S1",
+      "mcf_wajib": false
+    },
+    "15": {
+      "nama": "S1 Teknik Sistem Energi",
+      "jenjang": "S1",
+      "mcf_wajib": false
+    },
+    "20": {
+      "nama": "S2 Teknik Mesin",
+      "jenjang": "S2",
+      "mcf_wajib": false
+    },
+    "21": {
+      "nama": "S1 Teknik Sipil",
+      "jenjang": "S1",
+      "mcf_wajib": false
+    },
+    "22": {
+      "nama": "S1 Teknik Geografi",
+      "jenjang": "S1",
+      "mcf_wajib": false
+    },
+    "23": {
+      "nama": "S1 Teknik Lingkungan",
+      "jenjang": "S1",
+      "mcf_wajib": false
+    },
+    "30": {
+      "nama": "S2 Ilmu Komputer",
+      "jenjang": "S2",
+      "mcf_wajib": false
+    },
+    "31": {
+      "nama": "S1 Teknik Informatika",
+      "jenjang": "S1",
+      "mcf_wajib": true
+    },
+    "32": {
+      "nama": "S1 Sistem Informasi",
+      "jenjang": "S1",
+      "mcf_wajib": true
+    },
+    "33": {
+      "nama": "S1 Sains Data",
+      "jenjang": "S1",
+      "mcf_wajib": false
+    },
+    "40": {
+      "nama": "S2 Teknik Mesin",
+      "jenjang": "S2",
+      "mcf_wajib": false
+    },
+    "41": {
+      "nama": "S1 Bisnis Energi",
+      "jenjang": "S1",
+      "mcf_wajib": false
+    },
+    "42": {
+      "nama": "S1 Teknik Industri",
+      "jenjang": "S1",
+      "mcf_wajib": false
+    },
+    "71": {
+      "nama": "D3 Teknologi Listrik",
+      "jenjang": "D3",
+      "mcf_wajib": false
+    },
+    "72": {
+      "nama": "D3 Teknik Mesin",
+      "jenjang": "D3",
+      "mcf_wajib": false
+    },
+    "80": {
+      "nama": "Program Profesi Insinyur",
+      "jenjang": "Profesi",
+      "mcf_wajib": false
+    }
+  }
+}

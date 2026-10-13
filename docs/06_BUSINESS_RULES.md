@@ -111,3 +111,10 @@ Pseudocode di atas belum menangani I/O/permission/error, yang dijabarkan di SRS 
 
 ## 10. Larangan implisit
 Jangan mengisi `Sertifikasi MOS/MCF` jika kandidat hanya didasarkan fuzzy nama. Jangan mengambil skor `Score` sebagai bukti lulus ketika `Result=FAIL`. Jangan menyatukan MOS Excel dan MOS Word hanya karena program sama. Jangan membuang ketidakpastian karena ingin jumlah hasil `VALID` lebih besar.
+
+## 11. Revisi aturan pencocokan (2026-10-13)
+Revisi ini **menggantikan** ketentuan "VALID butuh SITASI LULUS + Certiport PASS" (ADR-002) dengan ketentuan berikut:
+1. **Cocok SITASI** = NIM **dan** nama sama (nama dinormalisasi). Bila cocok, status LULUS/TIDAK LULUS + skor dari SITASI **sudah cukup**; Certiport hanya bukti silang. Bila Certiport mencatat `FAIL` pada ujian yang sama → `PERLU_VERIFIKASI`.
+2. **Bila tidak cocok di SITASI** → cek Certiport berdasarkan nama. Nama tepat & unik → status dari Certiport (`PASS`→VALID, `FAIL`→TIDAK_LULUS). Nama hanya mirip atau ganda → `PERLU_VERIFIKASI` disertai daftar nama mirip (suku kata/typo).
+3. Tidak ada di SITASI **dan** Certiport → `DATA_TIDAK_DITEMUKAN`. NIM ada di SITASI tetapi nama berbeda dan tidak ada bukti lain → `PERLU_VERIFIKASI` (bukan "tidak ditemukan").
+4. **Kolom MCF** hanya relevan untuk prodi kode `31` (S1 Teknik Informatika) & `32` (S1 Sistem Informasi); di luar itu MCF **tidak dihitung** dan tidak memengaruhi status keseluruhan.

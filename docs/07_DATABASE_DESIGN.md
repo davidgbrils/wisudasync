@@ -3,7 +3,10 @@
 ## 1. Prinsip model data
 Rancangan ini **mengembangkan Phase 4**, bukan menggantinya. Migration `database/migrations/20260930120000_phase4_foundation.sql` menyiapkan `profiles`, `data_imports`, `sitasi_data`, dan `certiport_data`. Tabel sesi, hasil, reviewer dan referensi ditambahkan pada tahap berikutnya. Jangan menganggap tabel yang direncanakan sudah dibuat di database.
 
-## 2. ERD ringkas (target)
+## 2. ERD aktual (sesuai migrasi yang sudah dibuat)
+
+ERD di bawah mencerminkan tabel yang **benar-benar dibuat** pada `database/migrations/` (4 migrasi). Tabel `certification_aliases` masih **rencana** dan belum dibuat; alias ujian saat ini disimpan sebagai konstanta `EXAM_ALIAS_DRAFT` pada kode (`matching_service.py`).
+
 ```mermaid
 erDiagram
   PROFILES ||--o{ DATA_IMPORTS : uploads
@@ -15,28 +18,37 @@ erDiagram
   SYNC_SESSIONS ||--o{ SYNC_RESULTS : contains
   SYNC_RESULTS ||--o{ SYNC_EVIDENCE : supported_by
   SYNC_RESULTS ||--o{ REVIEW_AUDIT : reviewed_in
+  SITASI_DATA ||--o{ SYNC_EVIDENCE : sitasi_row
+  CERTIPORT_DATA ||--o{ SYNC_EVIDENCE : certiport_row
   PROFILES ||--o{ REVIEW_AUDIT : reviews
-  CERTIFICATION_ALIASES ||--o{ SYNC_EVIDENCE : helps_match
 
   PROFILES {
     uuid id PK
-    text name
+    text display_name
     text role
+    boolean is_active
   }
   DATA_IMPORTS {
     uuid id PK
     text data_type
     text file_name
+    text sheet_name
+    integer total_rows
+    integer imported_rows
     text status
     boolean is_active
+    uuid created_by FK
   }
   SITASI_DATA {
     bigint id PK
     uuid import_id FK
     int source_row
     text nim
+    text nama
+    text nama_normalized
     text sertifikasi
     text sub_program
+    numeric nilai
     text status
   }
   CERTIPORT_DATA {
@@ -44,44 +56,77 @@ erDiagram
     uuid import_id FK
     int source_row
     text full_name
+    text full_name_normalized
+    text program_name
     text certification_name
+    numeric score
     text result
   }
   SYNC_SESSIONS {
     uuid id PK
+    uuid created_by FK
+    text file_name
     uuid sitasi_import_id FK
     uuid certiport_import_id FK
-    text status
     integer total_rows
+    integer total_valid
+    integer total_review
+    integer total_not_found
+    text status
   }
   SYNC_RESULTS {
     uuid id PK
     uuid sync_session_id FK
     integer source_row
     text nim
+    text nama_wisuda
+    text mos_status
+    text mcf_status
     text validation_status
+    boolean needs_review
   }
   SYNC_EVIDENCE {
     uuid id PK
     uuid result_id FK
-    text evidence_type
-    bigint source_id
+    text category
+    text exam
+    bigint sitasi_row_id FK
+    bigint certiport_row_id FK
+    text match_method
+    numeric match_score
+    text evidence_status
+    text reason
   }
   REVIEW_AUDIT {
     uuid id PK
     uuid result_id FK
     uuid reviewed_by FK
+    text reviewer_name
     text decision
-  }
-  CERTIFICATION_ALIASES {
-    uuid id PK
-    text category
-    text sitasi_exam
-    text certiport_exam
+    text note
+    text previous_status
+    text new_status
   }
 ```
 
-Catatan ERD: relasi `DATA_IMPORTS → SYNC_SESSIONS` terjadi dua kali sebagai rujukan versi SITASI dan Certiport. `SYNC_EVIDENCE.source_id` mereferensikan SITASI/Certiport berdasarkan `evidence_type`; secara fisik dapat diganti dua FK nullable agar referensial integrity lebih kuat.
+Catatan ERD (aktual): relasi `DATA_IMPORTS → SYNC_SESSIONS` terjadi dua kali sebagai rujukan versi SITASI dan Certiport (`sitasi_import_id`, `certiport_import_id`, keduanya `on delete restrict`). `SYNC_EVIDENCE` memakai dua FK nullable (`sitasi_row_id`, `certiport_row_id`) — bukan satu `source_id` — sehingga integritas referensial lebih kuat dan bukti per ujian tetap terlacak. `SYNC_RESULTS` dan `SYNC_EVIDENCE` cascade dari `SYNC_SESSIONS`/`SYNC_RESULTS`; `review_audit` cascade dari `sync_results`.
+
+### 2.1 Status implementasi tabel
+
+| Tabel | Migrasi | Status |
+|---|---|---|
+| `profiles` | `20260930120000_phase4_foundation.sql` | Dibuat |
+| `data_imports` | `20260930120000_phase4_foundation.sql` | Dibuat |
+| `sitasi_data` | `20260930120000_phase4_foundation.sql` | Dibuat |
+| `certiport_data` | `20260930120000_phase4_foundation.sql` | Dibuat |
+| `sync_sessions` | `20261003120000_sync_sessions_and_results.sql` | Dibuat |
+| `sync_results` | `20261003120000_sync_sessions_and_results.sql` | Dibuat |
+| `sync_evidence` | `20261003120000_sync_sessions_and_results.sql` | Dibuat |
+| `review_audit` | `20261003130000_review_audit.sql` | Dibuat |
+| `certification_aliases` | — | **Rencana, belum dibuat** |
+| RPC `complete_data_import(uuid, integer)` | `20260930120000_phase4_foundation.sql` | Dibuat |
+
+> Catatan penting: seluruh migrasi ini **belum pernah dieksekusi** pada PostgreSQL/Supabase development berizin. Status "Dibuat" berarti file migrasi tersedia dan konsisten secara statis, bukan sudah terpasang di database.
 
 ## 3. Implementasi Phase 4: yang sudah ada di SQL
 ### `data_imports`

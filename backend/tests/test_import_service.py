@@ -51,6 +51,8 @@ def make_xlsx(
     header_row: int = 1,
     nim_number_format: str | None = None,
     formula: bool = False,
+    formula_column: int | None = None,
+    formula_value: str = "=1+1",
 ) -> BytesIO:
     workbook = Workbook()
     sheet = workbook.active
@@ -64,6 +66,9 @@ def make_xlsx(
         sheet.cell(row=header_row + 1, column=1).number_format = nim_number_format
     if formula:
         sheet.cell(row=header_row + 1, column=2, value="=1+1")
+    if formula_column is not None:
+        for offset in range(len(rows)):
+            sheet.cell(row=header_row + 1 + offset, column=formula_column, value=formula_value)
     output = BytesIO()
     workbook.save(output)
     workbook.close()
@@ -75,7 +80,10 @@ def sitasi_fixture(rows: list[list[object]], **kwargs) -> BytesIO:
     return make_xlsx("Master_Data", SITASI_HEADERS, rows, **kwargs)
 
 
-def certiport_fixture(rows: list[list[object]], **kwargs) -> BytesIO:
+def certiport_fixture(rows: list[list[object]], *, full_name_formula: bool = False, **kwargs) -> BytesIO:
+    if full_name_formula:
+        kwargs.setdefault("formula_column", 3)
+        kwargs.setdefault("formula_value", '=A5&" "&B5')
     return make_xlsx(
         "Results (264) Plus",
         CERTIPORT_HEADERS,
@@ -256,6 +264,30 @@ def test_import_rejects_formula_workbook():
     with pytest.raises(ImportValidationError, match="formula"):
         parse_sitasi(
             sitasi_fixture([sitasi_row("001", "Nama Uji", "Lulus")], formula=True),
+            "fixture.xlsx",
+        )
+
+
+def test_certiport_accepts_full_name_formula_and_derives_from_first_last():
+    parsed = parse_certiport(
+        certiport_fixture(
+            [["Ayu", "Uji", None, "Microsoft Office Specialist", "Word 2019", 800, "Pass"]],
+            full_name_formula=True,
+        ),
+        "fixture.xlsx",
+    )
+
+    assert parsed.rows[0]["full_name"] == "Ayu Uji"
+    assert parsed.rows[0]["full_name_normalized"] == "AYU UJI"
+
+
+def test_certiport_rejects_formula_in_required_column():
+    with pytest.raises(ImportValidationError, match="formula"):
+        parse_certiport(
+            certiport_fixture(
+                [["Ayu", "Uji", "Ayu Uji", "Microsoft Office Specialist", "Word 2019", 800, "Pass"]],
+                formula_column=6,
+            ),
             "fixture.xlsx",
         )
 

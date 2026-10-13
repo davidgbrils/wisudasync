@@ -7,6 +7,7 @@ from typing import BinaryIO
 from openpyxl import load_workbook
 
 from app.services.import_service import ImportValidationError, _read_upload
+from app.core.prodi import resolve_kode_prodi, resolve_program_studi
 
 WISUDA_SHEET = "Wisuda"
 WISUDA_COLUMNS = [
@@ -265,7 +266,30 @@ def parse_wisuda_for_sync(
                 )
 
             name = str(name_cell.value).strip()
-            rows.append({"source_row": row_number, "nim": nim, "nama": name})
+
+            # Ambil Kode Prodi dan Program Studi jika kolom tersedia
+            kode_prodi = ""
+            program_studi = ""
+            if "Kode Prodi" in header_positions:
+                kp_cell = row[header_positions["Kode Prodi"]]
+                if kp_cell.value is not None:
+                    kode_prodi = str(kp_cell.value).strip()
+            if "Program Studi" in header_positions:
+                ps_cell = row[header_positions["Program Studi"]]
+                if ps_cell.value is not None:
+                    program_studi = str(ps_cell.value).strip()
+
+            # Auto-resolve dari pola NIM atau mapping master data jika belum terisi
+            kode_prodi = resolve_kode_prodi(nim, kode_prodi)
+            program_studi = resolve_program_studi(kode_prodi, program_studi)
+
+            rows.append({
+                "source_row": row_number,
+                "nim": nim,
+                "nama": name,
+                "kode_prodi": kode_prodi,
+                "program_studi": program_studi,
+            })
     finally:
         workbook.close()
 

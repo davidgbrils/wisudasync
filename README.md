@@ -1,6 +1,10 @@
-# ITCC Wisuda Sync — Phase 4 Starter
+# ITCC Wisuda Sync
 
-Starter lokal untuk import data master SITASI dan Certiport melalui alur Next.js → FastAPI → Supabase. Phase ini belum mencakup login, matching Wisuda, review, atau export final.
+Aplikasi web internal untuk mengimpor data master SITASI & Certiport, mengunggah Excel wisuda, mencocokkan berdasarkan NIM, memverifikasi dengan Certiport, meninjau kasus ambigu, dan mengekspor Excel. Alur: **Next.js → FastAPI → Supabase**.
+
+**Status terkini:** backend (auth, impor, matching, sinkronisasi, review, export-gate) dan frontend terimplementasi serta lulus **134 test otomatis + typecheck + build** dengan fixture sintetis. **Belum siap production**: migrasi SQL/RLS belum dieksekusi pada Supabase, UAT browser belum dijalankan, dan ekspor final masih terkunci. Lihat `docs/22_UAT_FORM.md` dan `docs/25_LAPORAN_MAGANG.md`.
+
+Dokumentasi lengkap ada di [`docs/README.md`](docs/README.md).
 
 ## Prasyarat Windows
 
@@ -66,11 +70,12 @@ npm run build
 npm audit --audit-level=moderate
 ```
 
-## Batas Phase 4
+## Batas dan catatan
 
 - Gunakan hanya fixture anonim atau data dummy untuk pengujian lokal.
-- Endpoint import belum memiliki auth dan tidak boleh dibuka ke internet.
+- Endpoint data (SITASI/Certiport/Sync) memerlukan Bearer token petugas aktif; `/health` publik.
 - Konfigurasi dummy hanya mendukung health check, bukan operasi Supabase.
-- Mapping `Sertifikasi MOS`, `Sertifikasi MCF`, dan `Title Microsoft` belum disetujui dan tidak diisi otomatis.
+- Mapping `Sertifikasi MOS`, `Sertifikasi MCF`, dan `Title Microsoft` belum disetujui dan tidak diisi otomatis; ekspor final terkunci (`403`).
+- Jangan jalankan deployment sebelum UAT selesai dan pengesahan output ditandatangani.
 
 Detail implementasi tersedia di [`README_PHASE4.md`](README_PHASE4.md). Aturan agent tersedia di [`AGENTS.md`](AGENTS.md), sedangkan dokumentasi produk berada di [`docs/README.md`](docs/README.md).

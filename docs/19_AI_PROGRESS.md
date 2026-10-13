@@ -214,4 +214,306 @@ Dokumen ini menjadi checkpoint singkat antarsesi. Perbarui setelah setiap peruba
 - **Keputusan terbuka yang diikuti:** ADR-003 (output mapping belum disahkan), ADR-005 (alias ujian draft), ADR-006 (title microsoft), ADR-010 (larangan overwrite tanpa izin), ADR-011 (tidak menyimpulkan syarat wisuda).
 - **Tes terakhir:** `pytest tests/test_export_gate.py` — 6 PASS; seluruh 134 backend test — PASS; `npm run typecheck` — PASS; `npm run build` — PASS; `git diff --check` — PASS.
 - **Blocker spesifik:** Menunggu persetujuan dan tanda tangan tertulis pihak berwenang ITCC dan pimpinan akademik pada `docs/20_OUTPUT_MAPPING_APPROVAL.md` sebelum ekspor final dapat diaktifkan.
-- **Berikutnya:** Tahap 14 — Penyempurnaan UAT, skenario uji komprehensif, dan persiapan serah terima ke lingkungan berizin.
+- **Berikutnya:** Tahap 14 — Export Excel sesuai approval (ADR gate) dan Tahap 15 — Testing terintegrasi dan kualitas.
+
+## 2026-10-09 — Tahap 14: Export Excel sesuai approval (ADR gate)
+
+- **Status:** TERBLOKIR (STOP FINAL EXPORT)
+- **Tahap:** Verifikasi gate ekspor Excel resmi. Karena lembar `docs/20_OUTPUT_MAPPING_APPROVAL.md` belum memiliki keputusan & tanda tangan resmi ITCC, ekspor final secara ketat dihentikan (`403 Forbidden`). Generator pratinjau DRAFT OpenPyXL tetap aktif memproduksi berkas berlabel `[DRAFT]` dengan lembar audit terpisah tanpa merusak tata letak asli.
+- **Tes terakhir:** `pytest tests/test_export_gate.py` — 6 PASS; seluruh 134 backend test — PASS.
+- **Blocker:** Menunggu persetujuan tertulis pimpinan pada `docs/20_OUTPUT_MAPPING_APPROVAL.md`.
+- **Berikutnya:** Tahap 15 — Testing terintegrasi dan kualitas.
+
+## 2026-10-09 — Tahap 15: Testing terintegrasi dan kualitas
+
+- **Status:** SELESAI
+- **Tahap:** Eksekusi menyeluruh suite test unit, integrasi API, typecheck dan production build frontend, verifikasi keamanan auth/RBAC, pengujian batas input anomali (oversized upload, formula injection, format corrupt), serta penerbitan laporan resmi `docs/21_TEST_RESULTS.md`.
+- **Hasil:**
+  - Backend pytest: 134 passed (100% PASS, 0 failure).
+  - Frontend typecheck (`tsc --noEmit`): PASS (0 error).
+  - Frontend Next.js build (`next build`): PASS (seluruh rute dynamic/static terkompilasi optimal).
+  - Security & data validation: 100% PASS.
+- **Perubahan:**
+  - `docs/21_TEST_RESULTS.md` (baru): laporan matriks pengujian terintegrasi lengkap mencakup 24 test case `docs/10_TEST_PLAN.md` dan bukti eksekusi aktual.
+- **Tes terakhir:** `pytest tests -v` — 134 PASS; `npm run typecheck` — PASS; `npm run build` — PASS.
+- **Blocker / catatan lingkungan:** Runtime eksekusi SQL pada Supabase PostgreSQL dan smoke test visual browser setelah login membutuhkan kredensial dev berizin.
+- **Berikutnya:** Tahap 16 — UAT & persiapan serah terima ke lingkungan berizin.
+
+## 2026-10-09 — Tahap 16: Formulir UAT & persiapan serah terima
+
+- **Status:** SEBAGIAN — dokumen UAT siap, eksekusi UAT BELUM DIJALANKAN. **BELUM SIAP PRODUCTION.**
+- **Tahap:** Menyusun formulir UAT petugas dan meninjau kontrol akses, audit, retensi/backup, performa, pemetaan output, serta acceptance checklist.
+- **Perubahan:**
+  - `docs/22_UAT_FORM.md` (baru): 34 skenario UAT (auth, impor master, upload Wisuda, matching multi-attempt/konflik nama, verifikasi, ekspor, sesi lama) dengan kolom kasus/expected/actual/bukti disensor/keputusan petugas/tanggal.
+  - `docs/18_CHANGELOG.md` (update): catatan Tahap 16.
+  - `docs/README.md` (update): menambahkan indeks dokumen 20–22.
+- **Tes terakhir:** `pytest tests -q` — 134 PASS (2.87 s); `npm run typecheck` — PASS. UAT browser & SQL runtime BELUM DIJALANKAN.
+- **Blocker:** Belum ada lingkungan Supabase development berizin/credential baru; rotasi service-role key P0 belum dikonfirmasi; keputusan ADR-003/005/006/007/009/010/011 belum disahkan; lembar pengesahan UAT belum ditandatangani.
+- **Berikutnya:** Tahap 17 — Penyusunan runbook deployment dev/staging/production & tata kelola operasional.
+
+## 2026-10-09 — Tahap 17: Runbook deployment dev/staging/production & tata kelola operasional
+
+- **Status:** SEBAGIAN (RUNBOOK SIAP; LIVE PRODUCTION DEPLOYMENT DIBLOKIR)
+- **Tahap:** Penyusunan runbook operasional komprehensif di `docs/17_OPERATIONS.md` mencakup pemisahan 3 lingkungan (dev/staging/production), hosting FastAPI (Gunicorn/Uvicorn di balik Nginx) dan Next.js (Node container), manajemen secret tanpa git, pembatasan CORS ke domain resmi, RLS deny-all Supabase & private storage bucket, sanitasi logging tanpa PII, strategi backup PITR & snapshot harian, prosedur rollback aplikasi/DB, pemantauan kesehatan `GET /health`, serta protokol dry-run staging 5 langkah.
+- **Perubahan:**
+  - `docs/17_OPERATIONS.md` (update): runbook deployment lengkap dev/staging/production dan arsitektur pengamanan data internal.
+  - `docs/18_CHANGELOG.md` (update): catatan Tahap 17.
+- **Blocker:** Deployment live ke production belum dapat dilakukan karena belum ada instruksi eksplisit dan persetujuan tertulis dari pemilik sistem, lembar ADR output mapping `docs/20_OUTPUT_MAPPING_APPROVAL.md` belum disahkan, dan eksekusi UAT lapangan belum selesai. Tidak ada URL live fiktif yang dicantumkan.
+- **Berikutnya:** Menunggu persetujuan pemilik sistem dan pengesahan ADR output mapping sebelum eksekusi staging dry-run.
+
+## 2026-10-09 — Tahap 18: Dokumentasi akhir & laporan magang
+
+- **Status:** SELESAI (dokumentasi). **BELUM SIAP PRODUCTION.**
+- **Tahap:** Menyelesaikan dokumentasi akhir dan menyusun kerangka laporan magang.
+- **Perubahan:**
+  - `docs/23_USER_MANUAL.md` (baru): manual petugas upload–review–export.
+  - `docs/24_OPERATOR_GUIDE.md` (baru): import/backup/recovery, library & versi, limitasi terbuka.
+  - `docs/25_LAPORAN_MAGANG.md` (baru): BAB I–V, matriks fitur→file→test→bukti→bagian laporan, status akhir, keputusan institusi.
+  - `docs/07_DATABASE_DESIGN.md` (update): ERD & status tabel aktual.
+  - `docs/08_API_CONTRACT.md` (update): status endpoint aktual.
+  - `README.md`, `docs/README.md` (update): status & indeks.
+  - `docs/18_CHANGELOG.md` (update): catatan Tahap 18.
+- **Tes terakhir:** `pytest -q` — 134 PASS; `npm run typecheck` — PASS. Tidak ada perubahan kode aplikasi.
+- **Blocker:** belum ada Supabase dev berizin, rotasi key P0 belum dikonfirmasi, ADR terbuka, UAT & pengesahan belum ada.
+- **Berikutnya:** Serah terima dokumentasi ke pembimbing; jalankan UAT saat lingkungan berizin tersedia. Jangan deploy.
+
+## 2026-10-09 — Fitur: Registrasi akun petugas di halaman login & pencatatan di database
+
+- **Status:** SELESAI
+- **Tahap:** Implementasi formulir registrasi akun petugas pada `frontend/app/login/page.tsx` dengan auto-login, endpoint FastAPI `POST /api/v1/auth/register` menggunakan service-role untuk membuat pengguna di Supabase Auth dan otomatis mencatat data profil di tabel `public.profiles` (`role = 'staff'`, `is_active = true`), migrasi trigger DB `database/migrations/20261009180000_handle_new_user_profile.sql`, serta penambahan 4 test case di `backend/tests/test_auth.py`.
+- **Hasil tes:** 138 test backend PASS (100%), Next.js typecheck PASS, Next.js build PASS.
+
+## 2026-10-12 — Fitur: Landing page publik dan navbar masuk/daftar
+
+- **Status:** SELESAI (frontend typecheck). Belum ada smoke test browser runtime.
+- **Tahap:** Halaman awal publik dan navigasi masuk/daftar.
+- **Perubahan:**
+  - `frontend/app/page.tsx` (update): landing page publik (hero, fitur, cara kerja, status, ajakan, footer) menggantikan redirect ke `/dashboard`.
+  - `frontend/components/public-navbar.tsx` (baru): navbar lengket dengan tombol Masuk/Daftar dan menu seluler aksesibel.
+  - `frontend/components/login-form.tsx` (baru): ekstraksi formulir login/daftar sebagai komponen klien dengan prop `initialMode`.
+  - `frontend/app/login/page.tsx` (update): pembungkus server yang membaca `searchParams.mode` agar `/login?mode=register` membuka tab pendaftaran.
+  - `docs/18_CHANGELOG.md` (update): catatan fitur.
+- **Tes terakhir:** `npm run typecheck` — PASS. Verifikasi browser belum dijalankan.
+- **Blocker:** Smoke test visual membutuhkan lingkungan Supabase development berizin.
+- **Berikutnya:** Verifikasi tampilan landing dan login di browser saat lingkungan berizin tersedia; pastikan rute `/`, `/login`, dan `/login?mode=register` sesuai harapan.
+
+## 2026-10-12 — Fitur: Implementasi Design System Google Stitch (Swiss Minimalism + Enterprise Utility)
+
+- **Status:** SELESAI
+- **Tahap:** Mengadopsi design system dan 8 rancangan screen Google Stitch ke dalam antarmuka aplikasi Next.js/Tailwind CSS.
+- **Perubahan:**
+  - `frontend/tailwind.config.ts` (update): penambahan token warna brand (`#172321`, `#66736F`, `#0F766E`, `#0F4B46`, `#DDE4E1`, `#ECFAF8`, `#F5F7F6`) dan font family.
+  - `frontend/app/globals.css` & `layout.tsx` (update): integrasi font Google `IBM Plex Sans` dan `IBM Plex Mono`.
+  - `frontend/components/sidebar-nav.tsx` & `layout.tsx` (update): shell header dan navigasi sidebar dengan indikator aktif border teal 3px.
+  - `frontend/components/login-form.tsx` (update): pembaruan formulir login dan registrasi akun.
+  - `frontend/app/(dashboard)/dashboard/page.tsx` (update): dashboard metrik, banner status batch, kartu aksi cepat.
+  - `frontend/components/master-data-page.tsx` (update): tabel master SITASI & Certiport dengan banner aturan Certiport tanpa NIM dan styling mono NIM.
+  - `frontend/app/(dashboard)/sinkronisasi/page.tsx` (update): area upload dropzone 2px dashed dan ringkasan validasi.
+  - `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx` (update): KPI metrik, tombol draft export & lock final, tabel hasil, serta modal detail review ADR-009.
+  - `frontend/app/(dashboard)/riwayat/page.tsx` (update): tabel riwayat sesi sinkronisasi dan badge batch master.
+  - `docs/18_CHANGELOG.md` (update): pencatatan changelog.
+- **Tes terakhir:** `npm run typecheck` — PASS (0 errors); `npm run build` — PASS (semua 8 rute halaman berhasil dibuat).
+- **Blocker:** Pengujian end-to-end visual runtime memerlukan akun Supabase development berizin.
+- **Berikutnya:** Melakukan UAT visual bersama pengguna atau pengujian interaksi pengguna di browser.
+
+## 2026-10-12 — Aset brand: crop brand board & penerapan ke UI
+
+- **Status:** SELESAI (aset dibuat, diterapkan, typecheck + build PASS). Screenshot browser BELUM dijalankan (agent-browser tidak terpasang).
+- **Tahap:** Mengubah `asset.png` (brand board ITCC Wisuda Sync 1536×1024) menjadi aset terpisah dan menerapkannya ke UI.
+- **Perubahan:**
+  - `frontend/scripts/crop_brand_assets.py` (baru): potong + auto-trim + split baris + alpha transparan, hapus label anotasi pada banner.
+  - `frontend/public/brand/*` (baru): `logo-full.png`, `logo-mark.png`, `app-icon.png`, `hero-banner.png`, 5 `icon-*.png`.
+  - `frontend/app/icon.png` (baru): favicon via konvensi App Router.
+  - `frontend/components/public-navbar.tsx`, `frontend/app/(dashboard)/layout.tsx`, `frontend/components/login-form.tsx` (update): pakai logo/tile brand.
+  - `frontend/components/sidebar-nav.tsx` (update): ikon modul pada tiap tautan.
+  - `frontend/app/page.tsx` (update): banner hero di landing.
+  - `docs/18_CHANGELOG.md` (update): catatan aset brand.
+- **Tes terakhir:** `npm run typecheck` — PASS; `npm run build` — PASS (`/icon.png` ter-generate); dev server mengembalikan HTTP 200 untuk `/`, `/login`, `/icon.png`, `/brand/*`.
+- **Blocker:** Verifikasi visual otomatis butuh `agent-browser` terpasang; ilustrasi transparan ("HERO ILUSTRASI") tidak dipakai karena pola checker bawaan tidak dapat diekstrak bersih.
+- **Berikutnya:** UAT visual landing/login/dashboard di browser berizin; konfirmasi ukuran logo pada header.
+
+## 2026-10-12 — UI/UX & Responsive Design (Penerapan Panduan /ui-ux-pro-max)
+
+- **Status:** SELESAI
+- **Tahap:** Penyempurnaan responsivitas di seluruh perangkat (ponsel, tablet, desktop, widescreen) dan penataan layout shell agar proporsional tanpa ruang kosong timpang.
+- **Perubahan:**
+  - `frontend/components/dashboard-shell.tsx` (baru): shell layout enterprise dengan sidebar desktop 100vh, topbar dengan breadcrumb & status, serta mobile drawer navigasi slide-over.
+  - `frontend/app/(dashboard)/layout.tsx` (update): migrasi ke `DashboardShell`.
+  - `frontend/components/sidebar-nav.tsx` (update): prop `onNavigate` untuk auto-close mobile drawer dan visual active indicator.
+  - `frontend/components/logout-button.tsx` (update): tombol modern dengan touch-target >= 44x44px.
+  - `frontend/app/(dashboard)/dashboard/page.tsx` (update): hero banner responsif, 2 kartu aksi cepat, dan toleransi state batch server yang informatif.
+  - `frontend/components/master-data-page.tsx`, `sinkronisasi/page.tsx`, `sinkronisasi/[id]/page.tsx`, `riwayat/page.tsx` (update): padding responsif, KPI adaptif 2x2/4 kolom, table mobile scroll hint.
+  - `docs/18_CHANGELOG.md` (update): pencatatan changelog.
+- **Tes terakhir:** `npm run typecheck` — PASS (0 errors); `npm run build` — PASS (seluruh 8 rute halaman static/dynamic terkompilasi sukses).
+- **Blocker:** Pengujian browser interaktif langsung di runtime staging/production berizin.
+- **Berikutnya:** Uji responsif langsung di peramban pengguna pada resolusi mobile, tablet, dan widescreen monitor.
+
+## 2026-10-12 — Skill: Instalasi skill anti-ai-slop
+
+- **Status:** SELESAI
+- **Tahap:** Mengunduh dan memasang skill anti-ai-slop dari repository GitHub `misbahsy/anti-ai-slop`.
+- **Perubahan:**
+  - `.agents/skills/anti-ai-slop/` (baru): berisi `SKILL.md`, `references/`, `scripts/slopcheck.py`, `scripts/sanitize.py`, `scripts/grade.py`, serta unit test.
+  - `docs/18_CHANGELOG.md` (update): pencatatan changelog.
+- **Tes terakhir:** `python .agents/skills/anti-ai-slop/tests/test_slopcheck.py` — seluruh 26 tes PASS (100%).
+- **Blocker:** Tidak ada. Skill siap dipanggil untuk proses scrub/audit penulisan teks.
+- **Berikutnya:** Skill dapat diaktifkan saat menulis atau meninjau draf dokumentasi, teks UI, atau laporan agar bebas dari pola tulisan AI slop.
+
+## 2026-10-12 — Refinement UI/UX & De-slop Design (Penerapan ui-ux-pro-max + anti-ai-slop)
+
+- **Status:** SELESAI
+- **Tahap:** Merapikan antarmuka dashboard agar bebas dari elemen AI slop dan menyelaraskan format laporan magang sesuai linter anti-ai-slop.
+- **Perubahan:**
+  - `frontend/app/(dashboard)/dashboard/page.tsx`: Didesain ulang menjadi pusat operasional berstandar Swiss Utility tanpa hero SaaS/crypto gelap generik. Menyajikan header operasional institusional, stepper alur 4 tahap kerja, kartu status batch aktif (SITASI & Certiport), tabel sesi sinkronisasi terbaru (`recent sessions`), dan panduan verifikasi operasional staf.
+  - `docs/25_LAPORAN_MAGANG.md`: Draf kerangka laporan magang di-scrub dan disanitasi dari pola AI slop (menghilangkan em-dash, decorative bolding tengah kalimat, stub berlebih, dan heading title-case).
+  - `docs/18_CHANGELOG.md` & `docs/19_AI_PROGRESS.md`: Pembaruan catatan riwayat dan progres sistem.
+- **Tes terakhir:**
+  - `npm run typecheck` — PASS (0 errors).
+  - `npm run build` — PASS (10 rute Next.js terkompilasi optimal).
+  - `pytest -q` backend — 140 PASS (2.63 detik).
+  - `python .agents/skills/anti-ai-slop/scripts/slopcheck.py docs/25_LAPORAN_MAGANG.md` — Score: 94.0/100 (Grade A, PASS).
+- **Blocker:** Tidak ada blocker baru. Runtime live database Supabase tetap menunggu akun/kredensial berizin pemilik proyek.
+- **Berikutnya:** UAT verifikasi tampilan dashboard dan evaluasi alur sinkronisasi end-to-end.
+
+## 2026-10-12 — Perbaikan impor Certiport (formula `Full Name`)
+
+- **Status:** SELESAI (unit test PASS; berkas asli ter-parse).
+- **Tahap:** Memperbaiki error "File belum sesuai format atau template yang diwajibkan" saat impor `data_certiport.xlsx`.
+- **Akar masalah:** Ekspor resmi Certiport memakai formula `=CONCATENATE(...)` pada kolom `Full Name` (4047 sel); importer menolak seluruh workbook yang mengandung formula apa pun, padahal aturan terdokumentasi hanya menolak formula pada kolom wajib.
+- **Perubahan:**
+  - `backend/app/services/import_service.py` (update): validasi formula dibatasi ke kolom wajib pada sheet target; pengecualian `Full Name` certiport; fallback nama dari `First Name` + `Last Name`; perbaikan sel read-only (`EmptyCell`).
+  - `backend/tests/test_import_service.py` (update): +2 test (terima formula Full Name; tolak formula kolom wajib).
+  - `docs/08_API_CONTRACT.md`, `docs/23_USER_MANUAL.md`, `docs/24_OPERATOR_GUIDE.md` (update): aturan formula.
+  - `docs/18_CHANGELOG.md` (update): catatan perbaikan.
+- **Blocker:** Impor live tetap membutuhkan Supabase berizin; tidak ada perubahan kontrak API/DB.
+- **Berikutnya:** Uji impor end-to-end lewat UI Certiport saat lingkungan berizin tersedia.
+
+## 2026-10-12 — Peningkatan Engine Matching: Pengecekan Langsung Wisuda ke Certiport & SITASI
+
+- **Status:** SELESAI
+- **Tahap:** Memperbaiki metode pencocokan data wisuda agar tidak hanya bertumpu pada data SITASI sebagai patokan tunggal. Sistem kini mengecek exact NIM di SITASI dan nama di Certiport secara paralel dan langsung membaca rekaman Certiport.
+- **Perubahan:**
+  - `backend/app/services/matching_service.py`:
+    - Menghapus skip Certiport jika NIM tidak ada di SITASI. Certiport kini langsung dicek berdasarkan nama wisudawan.
+    - Menambahkan fungsi `_build_certiport_only_exam` untuk membaca dan mencatat seluruh sertifikasi Certiport (PASS/FAIL) yang belum tercatat di data SITASI.
+    - Menambahkan kode alasan `R14_CERTIPORT_ONLY` ("Sertifikasi tercatat di Certiport (PASS), namun belum ada rekaman attempt di data SITASI").
+    - Menambahkan fungsi kanonikal nama sertifikasi `_canonical_exam_name` dan pengenalan program `_map_category_reverse`.
+  - `backend/tests/test_certiport_matching.py` & `backend/tests/test_validation_engine.py`:
+    - Mengadaptasi pengujian dan menambahkan kasus uji untuk pembacaan langsung Certiport tanpa rekaman SITASI serta pembacaan multi-ujian Certiport.
+- **Tes terakhir:**
+  - `pytest -q` backend — 144 PASS (0 failed, 2.60 s).
+  - `npm run typecheck` — PASS (0 errors).
+  - `npm run build` — PASS (10 rute Next.js terkompilasi optimal).
+- **Blocker:** Tidak ada blocker teknis.
+- **Berikutnya:** Validasi hasil sinkronisasi pada data uji skala penuh di peramban.
+
+## 2026-10-12 — Penyajian Skor Ujian SITASI/Certiport & Seleksi Multi-Attempt Lulus
+
+- **Status:** SELESAI
+- **Tahap:** Mengembangkan seleksi multi-attempt (prioritaskan lulus dengan skor tertinggi) serta visualisasi skor MOS dan MCF pada hasil sinkronisasi.
+- **Perubahan:**
+  - `backend/app/services/matching_service.py`: Agregasi multi-attempt memisahkan percobaan lulus vs gagal; mengambil attempt LULUS dengan nilai tertinggi; jika belum lulus, mengambil attempt dengan nilai terbaik; menyertakan field `score`, `scores`, `mos_score`, dan `mcf_score`.
+  - `backend/app/services/sync_service.py`: Menyimpan skor efektif ujian ke kolom `match_score` pada `sync_evidence`.
+  - `backend/tests/test_validation_engine.py`: +3 unit test untuk multi-attempt pass selection, single-attempt fail score preservation, dan all-failed score selection.
+  - `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`: Helper `formatScoreBadges` untuk menampilkan skor MOS/MCF di tabel dan modal detail bukti.
+- **Tes terakhir:**
+  - `pytest -q` backend — 147 PASS (0 failed, 2.68 s).
+  - `npm run typecheck` — PASS (0 errors).
+  - `npm run build` — PASS (10 rute Next.js terkompilasi optimal).
+- **Blocker:** Tidak ada blocker teknis.
+- **Berikutnya:** UAT verifikasi tampilan hasil sinkronisasi bersama staf ITCC.
+
+## 2026-10-13 — Perbaikan Atribuasi Skor Sumber Certiport-Only pada Modal Detail
+
+- **Status:** SELESAI
+- **Tahap:** Mengatasi kesalahan penempatan skor di mana sertifikasi Certiport tanpa SITASI (Certiport-only) keliru menampilkan skor pada kotak Basis Data SITASI.
+- **Perubahan:**
+  - `backend/app/services/matching_service.py`: Nilai `sitasi_score` dan `sitasi_name` diset `None` jika ujian berstatus `certiport_only`.
+  - `backend/app/services/sync_service.py`: Di `get_sync_result_detail`, jika `certiport_row_id` ada dan `sitasi_row_id` null, `match_score` diatribusikan ke `certiport_score`.
+  - `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`: Penyesuaian `hasSitasi` dan `hasCertiport` serta fallback skor; kotak SITASI menampilkan *"Tidak ada rekaman attempt di data SITASI"*, sedangkan kotak Certiport menampilkan Nama, Skor (775), dan Hasil PASS.
+- **Tes terakhir:**
+  - `pytest -q` backend — 148 PASS.
+  - `npm run typecheck` — PASS.
+  - `npm run build` — PASS.
+- **Blocker:** Tidak ada blocker teknis.
+- **Berikutnya:** UAT verifikasi tampilan hasil sinkronisasi bersama staf ITCC.
+
+## 2026-10-13 — Uji E2E browser (Playwright) & perbaikan bug
+
+- **Status:** SELESAI (2 bug diperbaiki; 1 temuan diklarifikasi bukan bug; test & build PASS).
+- **Tahap:** Uji end-to-end UI memakai akun petugas dummy (`qa.dummy.20261013@example.com`) dan berkas `data_sitasi.xlsx`, `data_certiport.xlsx`, `data_wisuda.xlsx`.
+- **Perubahan:**
+  - `backend/app/main.py` (update): `allow_methods` CORS ditambah `PATCH` — memperbaiki kegagalan simpan keputusan review dari browser (preflight ditolak sebelumnya).
+  - `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx` (update): buang ekstensi `.xlsx` dari `file_name` sebelum menyusun nama unduhan DRAFT (sebelumnya `...xlsx.xlsx`).
+  - `backend/tests/test_sync_api.py` (update): tambah `test_cors_preflight_allows_patch_for_review`.
+  - `docs/18_CHANGELOG.md` (update): catatan temuan & perbaikan.
+- **Temuan yang BUKAN bug:** `needs_review=True` untuk `DATA_TIDAK_DITEMUKAN` sesuai desain (diuji di `test_sync_service.py`, `test_validation_engine.py`).
+- **Tes terakhir:** `pytest tests -q` — 149 PASS; `npm run typecheck` — PASS; `npm run build` — PASS; preflight PATCH (instance uji 8001) → 200; PATCH review → 200.
+- **Blocker:** Instance backend aktif pada port 8000 perlu di-restart agar perubahan CORS berlaku.
+- **Berikutnya:** Restart backend, ulangi simpan keputusan review di UI untuk konfirmasi akhir.
+
+## 2026-10-13 — Tabel Hasil Sinkronisasi Format Wisuda & Pemisahan Skor SITASI/Certiport
+
+- **Status:** SELESAI
+- **Tahap:** Menyesuaikan kolom tabel hasil sinkronisasi di web UI agar persis dengan struktur file wisuda (No, Kode Prodi, Program Studi, NIM, Nama, Sertifikasi MOS, Sertifikasi MCF [untuk prodi 31 & 32], Title Microsoft), menampilkan skor sumber SITASI (`S:`) dan Certiport (`C:`) secara terpisah, serta mengisi kolom prodi pada DRAFT export.
+- **Perubahan:**
+  - `database/migrations/20261013150000_sync_results_add_prodi.sql` (baru): Tambah kolom `kode_prodi` dan `program_studi` pada tabel `sync_results`.
+  - `backend/app/services/wisuda_validation_service.py`: Ekstraksi kolom `Kode Prodi` dan `Program Studi` dari workbook wisuda.
+  - `backend/app/services/matching_service.py`: Meneruskan `kode_prodi` dan `program_studi` pada hasil matching.
+  - `backend/app/services/sync_service.py`: Menyimpan field prodi ke database dan mengisi kolom prodi pada DRAFT export workbook.
+  - `frontend/lib/api.ts`: Menambahkan `kode_prodi` dan `program_studi` pada interface `SyncResultItem`.
+  - `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`:
+    - Mengganti header dan sel tabel agar sesuai kolom wisuda: No, Kode Prodi, Program Studi, NIM, Nama, Sertifikasi MOS, Sertifikasi MCF (N/A untuk prodi selain 31 & 32), Title Microsoft, dan Aksi.
+    - Menampilkan skor sumber SITASI (label `S:`) dan Certiport (label `C:`) secara transparan dan terpisah di bawah status kelulusan.
+    - Menyajikan Title Microsoft dinamis sesuai capaian sertifikasi (Microsoft Office Specialist, Microsoft Certified: Fundamentals, atau status khusus).
+- **Tes terakhir:**
+  - `pytest tests -q` — 149 PASS.
+  - `npm run typecheck` — PASS (0 errors).
+  - `npm run build` — PASS (10 rute Next.js terkompilasi optimal).
+- **Blocker:** Tidak ada blocker teknis. Migration database `20261013150000_sync_results_add_prodi.sql` perlu dieksekusi di Supabase jika lingkungan memakai database remote live.
+- **Berikutnya:** Konfirmasi tampilan bersama staf/operator dan lanjutkan sesi sinkronisasi live.
+
+## 2026-10-13 — Master Data Pemetaan Kode NIM ke Program Studi (prodi_mapping.json)
+
+- **Status:** SELESAI
+- **Tahap:** Menyediakan master konfigurasi JSON pemetaan 19 Kode NIM ke Program Studi ITPLN (termasuk S2 dan Profesi sesuai `data_wisuda.xlsx`) agar Program Studi otomatis terisi dari kode di `prodi_mapping.json`, dilengkapi helper resolver otomatis untuk backend & frontend.
+- **Perubahan:**
+  - `backend/app/core/prodi_mapping.json` (baru): Master file JSON konfigurasi 19 prodi dan daftar kode wajib MCF (`31`, `32`).
+  - `frontend/lib/prodi_mapping.json` (baru): File JSON prodi identik untuk konsumsi frontend.
+  - `backend/app/core/prodi.py` (baru): Helper Python untuk load config, ekstraksi kode prodi langsung dari NIM (2 digit setelah 4 digit tahun angkatan, misal 202331243 -> '31' S1 Teknik Informatika, 202110039 -> '10' S2 Teknik Elektro), lookup nama prodi resmi, dan fungsi `is_mcf_relevant`.
+  - `backend/app/services/wisuda_validation_service.py`: Auto-resolve `kode_prodi` dan `program_studi` langsung dari NIM saat parsing data wisuda.
+  - `backend/app/services/matching_service.py`: Auto-resolve `kode_prodi` dan `program_studi` di pipeline matching.
+  - `backend/app/services/sync_service.py`: Ekstraksi prodi dari NIM saat insert sync results, list results, get detail, dan export DRAFT Excel.
+  - `frontend/lib/prodi.ts` (baru): Helper TypeScript untuk frontend (`resolveKodeProdiFromNim`, `isMcfRelevant`, `getProgramStudiName`).
+  - `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`: Integrasi helper prodi untuk ekstraksi NIM di tabel, tampilan Program Studi di tabel dan modal rincian evaluasi.
+  - `backend/tests/test_prodi.py` (baru): 4 unit test untuk memverifikasi load config 19 prodi, ekstraksi kode dari contoh NIM (202331243, 202110039), resolusi nama, dan relevansi MCF.
+  - `docs/18_CHANGELOG.md`: Pencatatan changelog.
+- **Tes terakhir:**
+  - `pytest tests -q` — 153 PASS (0 failed).
+  - `npm run typecheck` — PASS (0 errors).
+  - `npm run build` — PASS (10 rute Next.js terkompilasi optimal).
+- **Blocker:** Tidak ada blocker teknis.
+- **Berikutnya:** Siap digunakan dalam proses upload data wisuda dan sinkronisasi live.
+
+## 2026-10-13 — Perbaikan .gitignore (secret, log, artefak lokal)
+
+- **Status:** SELESAI
+- **Tahap:** Menutup celah push secret/artefak: audit `git status`, `git ls-files`, dan `git check-ignore` lalu melengkapi `.gitignore`.
+- **Perubahan:**
+  - `.gitignore`: tambah `frontend/.env`, `frontend/.env.local`, `*.xlsx`/`*.xls`/`data/`, `*.log`, `.playwright-cli/`, `.commandcode/`, `.kilo/`, `asset.png`, `venv/`/`backend/.venv/`, `frontend/out|build`, `dist/`, `.turbo/`, coverage.
+  - Untrack (staged delete) 3 `.pyc` yang terlanjur ter-commit.
+- **Tes terakhir:** `git check-ignore -v` PASS (8 path cocok); `git ls-files | Select-String pyc` kosong; `git diff --check` hanya 1 temuan lama di `test_validation_engine.py:574` (di luar scope).
+- **Blocker:** Tidak ada. Perhatian: `backend/.env` (service-role key) wajib dirotasi bila pernah ter-push — keputusan pemilik project.
+- **Berikutnya:** Commit `.gitignore` + untrack `.pyc`, lalu lanjutkan antrian Prompt berikutnya.
+
+## 2026-10-13 — Revisi aturan pencocokan Wisuda→SITASI→Certiport
+
+- **Status:** SELESAI (aturan diterapkan, test PASS). Belum UAT visual.
+- **Tahap:** Selaraskan aturan pencocokan dengan ketentuan pemilik (hasil klarifikasi).
+- **Perubahan:**
+  - `backend/app/services/matching_service.py` (update): `sitasi_matched` (NIM+nama), status SITASI cukup, fallback Certiport dengan verifikasi nama, fuzzy per kata + saran kandidat mirip, gate MCF (kode 31/32), konflik → PERLU_VERIFIKASI.
+  - `backend/tests/test_validation_engine.py`, `backend/tests/test_certiport_matching.py` (update): harapan lama diperbarui + kasus baru (NIM+nama, SITASI cukup, fallback Certiport, saran nama mirip, gate MCF).
+  - Tanpa perubahan skema DB: `mcf_status` disimpan `null` untuk prodi non-relevan.
+- **Tes terakhir:** `pytest tests -q` — 157 PASS.
+- **Blocker:** Perlu restart backend port 8000 agar berlaku, dan UAT visual.
+- **Berikutnya:** `npm run typecheck`/`build`, E2E browser, dan perbarui `docs/06_BUSINESS_RULES.md`.

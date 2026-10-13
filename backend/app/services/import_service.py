@@ -51,6 +51,10 @@ CERTIPORT_COLUMNS = [
     "Result",
 ]
 
+# Kolom certiport yang lazim berisi formula CONCATENATE pada ekspor resmi.
+# Nilai dibaca dari cache/last name bila formula belum tersimpan nilainya.
+CERTIPORT_FORMULA_COLUMNS = frozenset({"Full Name"})
+
 
 class ImportValidationError(ValueError):
     """File sumber tidak cocok dengan kontrak impor."""
@@ -135,6 +139,7 @@ def _open_validated_workbook(
     content: bytes,
     expected_sheet: str,
     required: list[str],
+    allow_formula_columns: frozenset[str] = frozenset(),
 ):
     try:
         workbook = load_workbook(
@@ -151,12 +156,20 @@ def _open_validated_workbook(
         raise ImportValidationError(f"Sheet wajib '{expected_sheet}' tidak ditemukan.")
 
     try:
-        for worksheet in workbook.worksheets:
-            for row in worksheet.iter_rows():
-                if any(cell.data_type == "f" for cell in row):
-                    raise ImportValidationError("Workbook dengan formula tidak diizinkan.")
         worksheet = workbook[expected_sheet]
         header_row, headers = _header_row(worksheet, required)
+        forbidden_columns = {
+            index
+            for index, header in enumerate(headers, start=1)
+            if header in required and header not in allow_formula_columns
+        }
+        if forbidden_columns:
+            for row in worksheet.iter_rows(min_row=header_row + 1):
+                for column_index, cell in enumerate(row, start=1):
+                    if column_index in forbidden_columns and getattr(cell, "data_type", None) == "f":
+                        raise ImportValidationError(
+                            "Workbook dengan formula pada kolom wajib tidak diizinkan."
+                        )
         return workbook, worksheet, header_row, headers
     except Exception:
         workbook.close()
@@ -190,11 +203,17 @@ def _original_text(value) -> str | None:
     return value if isinstance(value, str) else str(value)
 
 
-def _read_sheet(content: bytes, sheet_name: str, required: list[str]):
+def _read_sheet(
+    content: bytes,
+    sheet_name: str,
+    required: list[str],
+    allow_formula_columns: frozenset[str] = frozenset(),
+):
     workbook, worksheet, header_row, headers = _open_validated_workbook(
         content,
         sheet_name,
         required,
+        allow_formula_columns,
     )
     try:
         df = pd.read_excel(
@@ -267,6 +286,7 @@ def parse_certiport(
         content,
         CERTIPORT_SHEET,
         CERTIPORT_COLUMNS,
+        CERTIPORT_FORMULA_COLUMNS,
     )
     rows: list[dict] = []
     try:
@@ -274,12 +294,17 @@ def parse_certiport(
             if row.isna().all():
                 continue
             source_row = int(index) + header_row + 1
+            first_name = _original_text(row["First Name"])
+            last_name = _original_text(row["Last Name"])
             full_name = _original_text(row["Full Name"])
+            if full_name is None:
+                parts = [part for part in (first_name, last_name) if part]
+                full_name = " ".join(parts) or None
             rows.append(
                 {
                     "source_row": source_row,
-                    "first_name": _original_text(row["First Name"]),
-                    "last_name": _original_text(row["Last Name"]),
+                    "first_name": first_name,
+                    "last_name": last_name,
                     "full_name": full_name,
                     "full_name_normalized": normalize_name(full_name),
                     "program_name": clean_text(row["Program Name"]),

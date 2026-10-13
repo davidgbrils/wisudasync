@@ -236,3 +236,21 @@ def test_get_result_detail_with_evidence(auth_client, setup_supabase_mock):
     assert detail["nim"] == "209900001"
     assert "evidence" in detail
     assert len(detail["evidence"]) >= 1
+
+
+# ---------------------------------------------------------------------------
+# CORS: keputusan review memakai PATCH; preflight harus mengizinkannya
+# ---------------------------------------------------------------------------
+
+def test_cors_preflight_allows_patch_for_review(auth_client):
+    response = auth_client.options(
+        "/api/v1/sync/session-id/results/result-id/review",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "PATCH",
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert "PATCH" in response.headers["access-control-allow-methods"]

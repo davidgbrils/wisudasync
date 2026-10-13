@@ -62,6 +62,8 @@ export type SyncResultItem = {
   source_row: number;
   nim: string;
   nama_wisuda: string;
+  kode_prodi: string | null;
+  program_studi: string | null;
   nama_sitasi: string | null;
   name_match_type: string | null;
   mos_status: string | null;
@@ -85,6 +87,12 @@ export type SyncEvidenceItem = {
   evidence_status: string | null;
   reason: string | null;
   created_at: string;
+  sitasi_name?: string | null;
+  sitasi_score?: number | null;
+  sitasi_status?: string | null;
+  certiport_name?: string | null;
+  certiport_score?: number | null;
+  certiport_status?: string | null;
 };
 
 export type ReviewAuditItem = {
@@ -244,4 +252,37 @@ export async function downloadSyncExport(sessionId: string, mode: "draft" | "fin
     throw new Error(detail);
   }
   return await response.blob();
+}
+
+export type RegisterStaffResponse = {
+  success: boolean;
+  message: string;
+  data: {
+    id: string;
+    email: string;
+    display_name: string;
+    role: string;
+  };
+};
+
+export async function registerStaff(payload: {
+  email: string;
+  password: string;
+  display_name: string;
+}): Promise<RegisterStaffResponse> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new Error("Layanan pendaftaran akun belum dapat dijangkau.");
+  }
+  if (!response.ok) {
+    const errorBody = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(errorBody?.detail || "Gagal melakukan pendaftaran akun petugas.");
+  }
+  return await response.json();
 }

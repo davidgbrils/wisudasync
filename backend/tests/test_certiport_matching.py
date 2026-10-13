@@ -163,7 +163,7 @@ def test_valid_sitasi_lulus_certiport_pass_exact_alias():
     exam = r["exams"][0]
     cv = exam["certiport_validation"]
     assert cv["combined_status"] == VALID
-    assert cv["reason"] == "SITASI LULUS dan Certiport PASS konsisten."
+    assert cv["reason"] == "SITASI LULUS (NIM+nama cocok); status cukup tanpa Certiport PASS."
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +206,7 @@ def test_same_name_multiple_unique_names_perlu_verifikasi():
 # Same name, same person, multiple records — unique candidate OK
 # ---------------------------------------------------------------------------
 
-def test_same_name_same_person_multiple_records_valid():
+def test_same_name_multiple_records_conflicting_fail_perlu_verifikasi():
     wisuda = [wisuda_row(nama="MAHASISWA CONTOH")]
     sitasi = [sitasi_row(sertifikasi="MOS", sub_program="Word", status="LULUS")]
     certiport = [
@@ -217,7 +217,8 @@ def test_same_name_same_person_multiple_records_valid():
     ]
     results = _run_pipeline(wisuda, sitasi, certiport)
     cv = results[0]["exams"][0]["certiport_validation"]
-    assert cv["combined_status"] == VALID
+    # SITASI LULUS tapi ada rekaman Certiport FAIL pada ujian sama → konflik.
+    assert cv["combined_status"] == PERLU_VERIFIKASI
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +237,8 @@ def test_cross_program_mismatch_perlu_verifikasi():
     results = _run_pipeline(wisuda, sitasi, certiport)
     cv = results[0]["exams"][0]["certiport_validation"]
     assert cv["certiport_status"] == DATA_TIDAK_DITEMUKAN
-    assert cv["combined_status"] == PERLU_VERIFIKASI
+    # SITASI MOS Word LULUS (NIM+nama cocok) → cukup, tetap VALID.
+    assert cv["combined_status"] == VALID
 
 
 # ---------------------------------------------------------------------------
@@ -305,20 +307,33 @@ def test_no_certiport_data():
     r = results[0]
     assert r["certiport_match"]["status"] == DATA_TIDAK_DITEMUKAN
     cv = r["exams"][0]["certiport_validation"]
-    assert cv["combined_status"] == PERLU_VERIFIKASI
+    assert cv["combined_status"] == VALID
 
 
 # ---------------------------------------------------------------------------
 # DATA_TIDAK_DITEMUKAN wisuda (no SITASI match) => certiport skipped
 # ---------------------------------------------------------------------------
 
-def test_no_sitasi_match_certiport_skipped():
-    wisuda = [wisuda_row(nim="999999999", nama="TIDAK ADA")]
+def test_no_sitasi_match_but_certiport_read_directly():
+    wisuda = [wisuda_row(nim="999999999", nama="TIDAK ADA DI SITASI")]
     sitasi = [sitasi_row(nim="209900001")]
-    certiport = [certiport_row(full_name="TIDAK ADA")]
+    certiport = [certiport_row(full_name="TIDAK ADA DI SITASI", certification_name="Word", result="Pass")]
     results = _run_pipeline(wisuda, sitasi, certiport)
     r = results[0]
-    assert r["certiport_match"]["status"] == "SKIPPED"
+    assert r["certiport_match"]["status"] == "MATCHED"
+    # Tidak ada di SITASI tapi ada di Certiport dengan nama cocok → pakai Certiport.
+    assert r["overall_status"] == VALID
+    assert len(r["exams"]) == 1
+    assert r["exams"][0]["certiport_only"] is True
+
+
+def test_no_sitasi_and_no_certiport_data_tidak_ditemukan():
+    wisuda = [wisuda_row(nim="999999999", nama="ORANG TIDAK ADA")]
+    sitasi = [sitasi_row(nim="209900001")]
+    certiport = [certiport_row(full_name="ORANG LAIN")]
+    results = _run_pipeline(wisuda, sitasi, certiport)
+    r = results[0]
+    assert r["certiport_match"]["status"] == DATA_TIDAK_DITEMUKAN
     assert r["overall_status"] == DATA_TIDAK_DITEMUKAN
 
 
@@ -327,8 +342,9 @@ def test_no_sitasi_match_certiport_skipped():
 # ---------------------------------------------------------------------------
 
 def test_fuzzy_only_no_exact_perlu_verifikasi():
-    wisuda = [wisuda_row(nama="MAHASISWA CONTOH")]
-    sitasi = [sitasi_row(nim="209900001", nama="MAHASISWA CONTOH", sertifikasi="MOS", sub_program="Word", status="LULUS")]
+    # Tidak cocok di SITASI (NIM tidak ada) → Certiport hanya mirip → PERLU_VERIFIKASI.
+    wisuda = [wisuda_row(nim="999999999", nama="MAHASISWA CONTOH")]
+    sitasi = [sitasi_row(nim="209900001", nama="ORANG LAIN", sertifikasi="MOS", sub_program="Word", status="LULUS")]
     certiport = [certiport_row(
         full_name="MAHASISWA CONTOHH",
         program_name="Microsoft Office Specialist",
@@ -339,6 +355,20 @@ def test_fuzzy_only_no_exact_perlu_verifikasi():
     r = results[0]
     assert r["certiport_match"]["status"] == PERLU_VERIFIKASI
     assert "fuzzy" in r["certiport_match"]["reason"].lower()
+
+
+def test_sitasi_matched_with_fuzzy_certiport_stays_valid():
+    # SITASI cocok NIM+nama → cukup; kandidat Certiport hanya mirip tidak menurunkan status.
+    wisuda = [wisuda_row(nama="MAHASISWA CONTOH")]
+    sitasi = [sitasi_row(nim="209900001", nama="MAHASISWA CONTOH", sertifikasi="MOS", sub_program="Word", status="LULUS")]
+    certiport = [certiport_row(
+        full_name="MAHASISWA CONTOHH",
+        program_name="Microsoft Office Specialist",
+        certification_name="Word",
+        result="Pass",
+    )]
+    results = _run_pipeline(wisuda, sitasi, certiport)
+    assert results[0]["overall_status"] == VALID
 
 
 # ---------------------------------------------------------------------------
@@ -361,8 +391,9 @@ def test_multiple_exams_mixed_status():
     mos_exam = next(e for e in r["exams"] if e["sertifikasi"] == "MOS")
     mcf_exam = next(e for e in r["exams"] if e["sertifikasi"] == "MCF")
     assert mos_exam["certiport_validation"]["combined_status"] == VALID
-    assert mcf_exam["certiport_validation"]["combined_status"] == PERLU_VERIFIKASI
-    assert r["overall_status"] == PERLU_VERIFIKASI
+    # MCF Azure LULUS di SITASI (nama cocok) → cukup, VALID meski tanpa Certiport.
+    assert mcf_exam["certiport_validation"]["combined_status"] == VALID
+    assert r["overall_status"] == VALID
 
 
 # ---------------------------------------------------------------------------
@@ -410,7 +441,7 @@ def test_sitasi_pending_combined_pending():
 # Certiport INCO result => PERLU_VERIFIKASI
 # ---------------------------------------------------------------------------
 
-def test_certiport_inco_perlu_verifikasi():
+def test_certiport_inco_keeps_sitasi_valid():
     wisuda = [wisuda_row(nama="MAHASISWA CONTOH")]
     sitasi = [sitasi_row(sertifikasi="MOS", sub_program="Word", status="LULUS")]
     certiport = [certiport_row(
@@ -421,7 +452,8 @@ def test_certiport_inco_perlu_verifikasi():
     )]
     results = _run_pipeline(wisuda, sitasi, certiport)
     cv = results[0]["exams"][0]["certiport_validation"]
-    assert cv["combined_status"] == PERLU_VERIFIKASI
+    # SITASI LULUS (nama cocok) → cukup; Certiport INCO tidak menurunkan status.
+    assert cv["combined_status"] == VALID
 
 
 # ---------------------------------------------------------------------------

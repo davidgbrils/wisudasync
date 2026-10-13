@@ -1,76 +1,142 @@
-# 17 — Panduan Operasional dan Setup Lokal
+# 17 — Panduan Operasional & Runbook Deployment (Dev / Staging / Production)
 
-Dokumen ini dipakai sesudah kode Phase 4 starter digabungkan dengan project Next.js lengkap. **Paket dokumen tidak otomatis membuat aplikasi yang sudah selesai.**
+Dokumen ini adalah **runbook operasional dan arsitektur deployment resmi** ITCC Wisuda Sync.
 
-## 1. Prasyarat
-- Python versi kompatibel dengan dependencies yang dipilih serta Node.js versi yang didukung Next.js terpasang.
-- Proyek Supabase development sendiri dengan kredensial server yang dirahasiakan.
-- Data Excel dummy; izin institusi jika menggunakan file asli.
-- Aplikasi terminal/VS Code.
+> **PERINGATAN KEAMANAN & ATURAN DEPLOYMENT:**
+> 1. Sistem ini mengolah data identitas akademik mahasiswa dan hasil sertifikasi resmi. **Sistem TIDAK BOLEH dibuka untuk publik** tanpa otorisasi jaringan internal/kampus.
+> 2. Deployment ke lingkungan Production **HANYA DAPAT DILAKUKAN** setelah:
+>    - Ada instruksi tertulis dan izin resmi dari pemilik sistem/Kepala ITCC.
+>    - Keputusan output mapping disahkan secara tertulis pada `docs/20_OUTPUT_MAPPING_APPROVAL.md`.
+>    - Seluruh skenario UAT selesai dengan status **PASS**.
+> 3. Jangan pernah menulis URL atau bukti live deployment fiktif. Selama lingkungan berizin belum disediakan, status deployment adalah **TERBLOKIR (DRAFT RUNBOOK READY)**.
 
-## 2. Persiapan backend
-Pada source code Phase 4:
-```powershell
-cd backend
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-Copy-Item .env.example .env
+---
+
+## 1. Pemisahan Lingkungan (Dev / Staging / Production)
+
+| Parameter | Development (Lokal) | Staging (Pre-Release) | Production (Live Operasional) |
+|---|---|---|---|
+| **Tujuan** | Pengembangan & automated test | Replikasi lingkungan penuh & UAT petugas | Operasional sinkronisasi wisuda sah |
+| **Akses Jaringan** | `localhost` | VPN Kampus / IP Whitelist ITCC | Jaringan Internal Kampus / Private Subnet |
+| **Dataset** | 100% Data Sintetis Anonim | Snapshot anonim / Fixture bertingkat | Data Riil Berizin (ITCC & Akademik) |
+| **Supabase DB** | Local / Dev Project terpisah | Project Staging terisolasi | Project Production terenkripsi (AES-256) |
+| **Public Signup** | Dinonaktifkan (Disabled) | Dinonaktifkan (Disabled) | Dinonaktifkan (Disabled) |
+| **Storage Bucket** | Local file / Private mock | Supabase Private Bucket (`wisuda-staging`) | Supabase Private Bucket (`wisuda-prod`) |
+| **Log Level** | `DEBUG` (tanpa PII) | `INFO` (audit ID only) | `WARNING` / `AUDIT` (hash identifier) |
+
+---
+
+## 2. Arsitektur Hosting, Domain, dan HTTPS
+
+```mermaid
+flowchart TD
+    Client[Browser Petugas ITCC] -->|HTTPS Port 443 / WAF| Gateway[Reverse Proxy / Cloudflare / Nginx]
+    Gateway -->|Forward / Internal| FE[Frontend Next.js App Router]
+    Gateway -->|API / Internal| BE[FastAPI Python Backend]
+    BE -->|REST / JWT / Service Key| SDB[(Supabase PostgreSQL + Auth)]
+    BE -->|Private SDK| SStore[(Supabase Private Storage)]
 ```
-Isi `.env` dengan `SUPABASE_URL`, server secret/service-role key, dan origin frontend. Jangan commit `.env`.
 
-Jalankan:
-```powershell
-uvicorn app.main:app --reload
-```
-Akses `http://localhost:8000/docs` atau `http://localhost:8000/api/v1/health`.
+### A. Frontend (Next.js 15)
+- **Host Rekomendasi:** Node.js container (Docker) pada server internal ITCC atau platform hosting privat (misal: Railway private service / VM Kampus).
+- **Domain:** `https://wisudasync.itcc.kampus.ac.id` (internal TLS/HTTPS tersertifikasi Let's Encrypt / Wildcard Kampus).
+- **Konfigurasi Lingkungan:**
+  ```bash
+  NEXT_PUBLIC_API_URL=https://api-wisudasync.itcc.kampus.ac.id/api/v1
+  NEXT_PUBLIC_SUPABASE_URL=https://<prod-ref>.supabase.co
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<public-anon-key>
+  ```
 
-### Autentikasi dan pembuatan petugas pertama
-1. Di Supabase development yang disetujui, matikan public signups pada pengaturan Auth. Buat/invite akun petugas melalui Dashboard Auth; jangan membuat endpoint signup publik.
-2. Salin UUID akun dari Dashboard. Dengan akun database administrator melalui SQL Editor development yang berizin, masukkan UUID itu ke `public.profiles` dengan role minimum `staff` dan `is_active = true`:
+### B. Backend (Python 3.12 + FastAPI)
+- **Host Rekomendasi:** Container Linux (Gunicorn + Uvicorn workers) dengan alokasi memori minimal 2 GB dan CPU 2 core untuk pemrosesan file Excel ratusan baris.
+- **Reverse Proxy:** Nginx mengelola SSL termination, buffering request upload (max 15MB), dan timeout 120s untuk parsing sinkron.
+- **Konfigurasi Lingkungan:**
+  ```bash
+  APP_ENV=production
+  FRONTEND_URL=https://wisudasync.itcc.kampus.ac.id
+  SUPABASE_URL=https://<prod-ref>.supabase.co
+  SUPABASE_SERVICE_ROLE_KEY=<secret-from-secret-manager>
+  MAX_UPLOAD_BYTES=10485760
+  RATE_LIMIT_PER_MINUTE=60
+  ```
 
-   ```sql
-   insert into public.profiles (id, display_name, role, is_active)
-   values ('<UUID_AUTH_USER>'::uuid, 'Petugas ITCC', 'staff', true);
+---
+
+## 3. Tata Kelola Rahasia & Secret Manager
+
+1. **Prinsip Nol Rahasia di Git:** Dilarang commit berkas `.env`, token, atau private key ke git. Gunakan `.gitignore`.
+2. **Secret Storage Production:**
+   - Gunakan Secret Manager (misal: Infisical, AWS Secrets Manager, GCP Secret Manager, atau Docker Secrets internal).
+   - Injeksi credential hanya melalui environment variable runtime server saat container dijalankan.
+3. **Pemisahan Kunci:**
+   - Browser client hanya menerima `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
+   - `SUPABASE_SERVICE_ROLE_KEY` **hanya berada di backend server**.
+
+---
+
+## 4. Keamanan Jaringan, CORS, dan Autentikasi
+
+1. **Pembatasan CORS:**
+   - Backend membatasi `allow_origins` tepat ke domain frontend resmi (`https://wisudasync.itcc.kampus.ac.id`).
+   - Wildcard (`*`) dilarang keras di staging dan production.
+2. **Supabase RLS (Row Level Security):**
+   - Seluruh tabel (`data_imports`, `sitasi_data`, `certiport_data`, `sync_sessions`, `sync_results`, `sync_evidence`, `review_audit`, `profiles`) menerapkan kebijakan **DENY ALL BY DEFAULT**.
+   - Akses manipulasi data hanya diberikan ke `service_role` yang dipanggil eksklusif oleh FastAPI.
+3. **Otorisasi Petugas:**
+   - Setiap endpoint data memverifikasi bearer JWT Supabase dan memeriksa status aktif di tabel `profiles` via `require_staff`.
+   - Public signups dimatikan; pembuatan akun staf hanya melalui invite dashboard admin.
+
+---
+
+## 5. Kebijakan Logging Tanpa Data Pribadi (PII Protection)
+
+Sistem wajib mematuhi privasi data akademik:
+- **Dilarang mencatat:** Nama mahasiswa lengkap, NIM mahasiswa mentah, nilai ujian individual, atau nomor kontak ke file log server / console.
+- **Pencatatan yang diizinkan:** ID Sesi (`session_id`), ID Batch (`import_id`), jumlah baris terproses, waktu eksekusi (ms), dan kode HTTP status.
+- **Format Audit:**
+  ```text
+  [INFO] 2026-10-09T17:00:00Z | session=uuid | action=SYNC_PROCESSED | total=424 | valid=380 | review=40 | duration_ms=1850 | actor=uuid-staff
+  ```
+
+---
+
+## 6. Prosedur Backup, Restore, dan Rollback
+
+### A. Strategi Backup Rutin
+1. **Automated Daily Backup:** Database Supabase menjalankan Point-in-Time Recovery (PITR) harian dengan retensi minimal 30 hari.
+2. **Pre-Migration Snapshot:** Sebelum menjalankan migrasi SQL apa pun di Staging/Production, jalankan full backup:
+   ```bash
+   pg_dump -h <db-host> -U postgres -d postgres -F c -b -v -f "backup_pre_migration_$(date +%Y%m%d_%H%M%S).dump"
    ```
 
-3. Tetapkan `admin` hanya kepada pemilik/petugas yang secara resmi disetujui. Jangan memakai `user_metadata` sebagai sumber hak akses dan jangan membuat bootstrap endpoint.
-4. Simpan `NEXT_PUBLIC_SUPABASE_URL` dan publishable key di `frontend/.env.local`; nilainya memang publik. `SUPABASE_SERVICE_ROLE_KEY` hanya di `backend/.env`, tidak dikirim ke browser atau log.
+### B. Prosedur Rollback Aman
+1. **Rollback Aplikasi:**
+   - Container image di-tag dengan commit hash spesifik (contoh: `wisudasync-backend:sha-abc1234`).
+   - Jika terjadi regresi, deploy ulang image versi stabil sebelumnya (waktu pemulihan < 5 menit).
+2. **Rollback Database:**
+   - Gunakan skrip rollback teruji dari folder `database/rollbacks/` (contoh: `20260930120000_phase4_foundation_rollback.sql`).
+   - Skrip rollback menolak eksekusi jika sudah ada data operasional tersimpan demi mencegah kehilangan data.
 
-Endpoint SITASI/Certiport kini memerlukan bearer token valid dan profil petugas aktif. `GET /api/v1/health` tetap publik. RLS/grants membatasi akses langsung dari role browser; pribadi hanya diambil FastAPI. Tetap gunakan development dan data dummy sampai izin cloud/retensi/UAT disetujui.
+---
 
-## 3. Database
-Pada lingkungan development, review dan jalankan `database/migrations/20260930120000_phase4_foundation.sql`, lalu jalankan `database/checks/phase4_foundation_check.sql`. Verifikasi `profiles`, `data_imports`, `sitasi_data`, `certiport_data`, indeks, RLS, grants, dan fungsi aktivasi batch. Gunakan migration baru untuk `sync_sessions` dan tabel terkait saat Phase 5.
+## 7. Pemantauan Kesehatan (Health Monitoring) & Alerting
 
-## 4. Frontend
-Salin `frontend/.env.example` menjadi `frontend/.env.local` dan isi URL FastAPI serta URL/publishable key Supabase. Jalankan `npm ci` lalu `npm run dev` dari `frontend`. Publishable key boleh berada di client; service-role key dan secret lain tidak.
+1. **Endpoint Liveness & Readiness:**
+   - `GET /api/v1/health` mengembalikan HTTP 200 `{ "status": "ok", "app_env": "production" }` tanpa membuka rahasia sistem.
+2. **Monitoring Uptime:**
+   - Monitoring internal (Uptime Kuma / Prometheus) melakukan polling `GET /health` setiap 60 detik.
+3. **Threshold Peringatan (Alert Triggers):**
+   - Respon API $> 5000\text{ ms}$ pada pemrosesan sinkronisasi.
+   - Peningkatan error 5xx $> 1\%$ dalam kurun 5 menit.
+   - Memory server $> 85\%$ selama lebih dari 3 menit.
 
-## 5. Alur operator setelah fitur selesai
-1. Login sebagai petugas resmi.
-2. Periksa batch SITASI/Certiport aktif dan waktu pengunggahannya.
-3. Impor sumber baru bila memang lebih mutakhir dan sudah benar.
-4. Unggah daftar wisuda, baca hasil validasi input.
-5. Jalankan matching.
-6. Tinjau **PERLU_VERIFIKASI** dan konflik; buat catatan.
-7. Setelah mapping output disetujui, unduh hasil Excel dan cek beberapa baris sampel.
-8. Catat nomor sesi, tanggal, dan nama file sesuai prosedur institusi.
+---
 
-## 6. Masalah umum
-| Masalah | Pemeriksaan |
-|---|---|
-| API tidak dapat diakses | Backend running? port 8000? nilai frontend URL? |
-| CORS | Origin Next.js cocok konfigurasi backend? CORS bukan pengganti auth |
-| 401/403 | Access token valid? user mendapat izin petugas? |
-| Header tidak ditemukan | Sheet/header file sesuai data dictionary? |
-| Angka NIM jadi `...0` | Periksa tipe sel dan normalisasi; jangan langsung cast ke float |
-| Hasil kosong | Ada batch master aktif? query memakai `import_id` sesuai? |
-| Kandidat tidak cocok | Cek nama normalisasi, kategori dan alias ujian, jangan mengubah langsung menjadi VALID |
-| Import gagal saat aktivasi | Periksa transaksi batch dan unique index partial |
-| Export berubah format | Pastikan OpenPyXL mengubah salinan input, bukan DataFrame baru |
+## 8. Protokol Eksekusi Dry-Run Staging Sebelum Production
 
-## 7. Perawatan dan pengamanan
-- Backup data sesuai kebijakan resmi, bukan berdasarkan asumsi.
-- Uji migrasi pada dev sebelum production.
-- Putar kredensial bila bocor; jangan pernah memublikasikan service-role key.
-- Ukur performa dengan dataset dummy dan jumlah row riil tanpa mengekspos identitas.
-- Perbarui dokumentasi dan hasil uji setiap ada perubahan aturan bisnis.
+Sebelum kode diterapkan ke Production, lakukan protokol 5 langkah di Staging:
+1. **Langkah 1 (DB Migration Dry-Run):** Terapkan skrip migrasi SQL pada database staging; jalankan skrip verifikasi `database/checks/phase4_foundation_check.sql`.
+2. **Langkah 2 (Master Data Batch Test):** Unggah workbook master SITASI dan Certiport sintetis, verifikasi aktivasi batch atomik.
+3. **Langkah 3 (Sync & Review Test):** Unggah daftar wisuda sintetis, pastikan hasil matching, reason codes, dan review trail tersimpan akurat.
+4. **Langkah 4 (Export Gate Proof):** Pastikan ekspor draft menghasilkan watermark `[DRAFT]` dan ekspor final mengembalikan `403 Forbidden` selama belum disahkan.
+5. **Langkah 5 (Sign-off Pemilik):** Presentasikan hasil kepada Kepala ITCC untuk memperoleh persetujuan tertulis implementasi production.

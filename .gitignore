@@ -1,18 +1,41 @@
 # Python
 backend/.env
 backend/venv/
+backend/.venv/
+venv/
 data_wisuda.xlsx
 data_sitasi.xlsx
 data_certiport.xlsx
+*.xlsx
+*.xls
+data/
 **/__pycache__/
 *.py[cod]
 .pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
 
 # Next.js
 frontend/node_modules/
 frontend/.next/
+frontend/out/
+frontend/build/
+frontend/.env
+frontend/.env.local
 frontend/.env*.local
 *.tsbuildinfo
+.next/
+out/
+dist/
+.turbo/
+
+# Log dan artefak lokal (jangan push: berisi data asli / debug)
+*.log
+.playwright-cli/
+.commandcode/
+.kilo/
+asset.png
 
 # Editor dan sistem operasi
 .vscode/

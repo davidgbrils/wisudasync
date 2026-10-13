@@ -81,12 +81,14 @@ export default function WisudaUploadPage() {
   }
 
   return (
-    <section className="mx-auto max-w-5xl space-y-6">
-      <header className="space-y-2">
-        <p className="text-sm font-semibold uppercase tracking-[0.14em] text-teal-800">Tahap sinkronisasi</p>
-        <h1 className="text-2xl font-semibold text-slate-950 sm:text-3xl">Validasi file wisuda</h1>
-        <p className="max-w-3xl text-sm leading-6 text-slate-600">
-          Unggah salinan `.xlsx` untuk memeriksa struktur dan data dasar. Validasi tidak menyimpan atau mengubah workbook.
+    <section className="mx-auto w-full max-w-6xl space-y-6 sm:space-y-8">
+      <header className="space-y-1.5">
+        <div className="inline-flex items-center gap-1.5 rounded-full border border-teal-200 bg-teal-50 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-teal-800">
+          Tahap 1 · Pra-Sinkronisasi
+        </div>
+        <h1 className="text-2xl font-bold tracking-tight text-[#172321] sm:text-3xl lg:text-4xl">Validasi Berkas Wisuda</h1>
+        <p className="max-w-3xl text-xs sm:text-sm leading-relaxed text-[#66736F]">
+          Unggah salinan workbook `.xlsx` untuk memeriksa kelengkapan struktur dan data mahasiswa. Tahap validasi bersifat read-only dan tidak mengubah berkas sumber.
         </p>
       </header>
 
@@ -100,11 +102,26 @@ export default function WisudaUploadPage() {
             setDragging(false);
             chooseFile(event.dataTransfer.files[0]);
           }}
-          className={`flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-5 py-8 text-center transition-colors focus-within:ring-2 focus-within:ring-teal-700 focus-within:ring-offset-2 ${dragging ? "border-teal-800 bg-teal-50" : "border-slate-300 bg-white hover:border-teal-700"}`}
+          className={`flex min-h-56 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-8 text-center transition-all ${
+            dragging
+              ? "border-[#0F766E] bg-[#ECFAF8]"
+              : "border-[#DDE4E1] bg-white hover:border-[#0F766E] hover:bg-[#F5F7F6]/50 shadow-xs"
+          }`}
         >
-          <span className="text-base font-semibold text-slate-900">Tarik file Wisuda ke sini</span>
-          <span className="mt-2 text-sm text-slate-600">atau pilih file `.xlsx`, maksimal 10 MiB</span>
-          <span className="mt-3 text-sm font-medium text-teal-800">{file ? "1 file dipilih" : "Pilih file"}</span>
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#ECFAF8] text-[#0F766E] shadow-xs">
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+          </div>
+          <span className="mt-3 text-sm sm:text-base font-bold text-[#172321]">
+            {file ? file.name : "Tarik dan letakkan berkas Excel (.xlsx) di sini"}
+          </span>
+          <span className="mt-1 text-xs text-[#66736F]">
+            Format workbook Microsoft Excel (.xlsx), ukuran maksimal 10 MiB
+          </span>
+          <span className="mt-4 inline-flex items-center rounded-xl border border-[#DDE4E1] bg-white px-4 py-2 text-xs font-semibold text-[#172321] shadow-xs hover:bg-slate-50">
+            {file ? "Ganti Berkas Excel" : "Pilih Berkas dari Komputer"}
+          </span>
           <input
             id="wisuda-file"
             name="wisudaFile"
@@ -114,64 +131,74 @@ export default function WisudaUploadPage() {
             aria-describedby="wisuda-file-help"
             onChange={(event) => chooseFile(event.currentTarget.files?.[0])}
           />
-          <span id="wisuda-file-help" className="sr-only">Workbook lokal diproses untuk validasi, tidak disimpan.</span>
+          <span id="wisuda-file-help" className="sr-only">Workbook lokal diproses untuk validasi, tidak disimpan secara permanen.</span>
         </label>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <button
             type="submit"
             disabled={!file || busy || syncing}
-            className="min-h-11 rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-800 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+            className="min-h-11 w-full sm:w-auto rounded-xl border border-[#DDE4E1] bg-white px-5 py-2.5 text-xs font-semibold text-[#172321] shadow-xs hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-800 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
           >
-            {busy ? "Memvalidasi…" : "Validasi file"}
+            {busy ? "Memvalidasi Struktur…" : "Validasi Struktur Berkas"}
           </button>
           <button
             type="button"
             onClick={handleSync}
             disabled={!file || busy || syncing}
-            className="min-h-11 rounded-lg bg-teal-800 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-teal-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+            className="min-h-11 w-full sm:w-auto rounded-xl bg-[#0F766E] px-6 py-2.5 text-xs font-semibold text-white shadow-xs hover:bg-[#0F4B46] focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
-            {syncing ? "Memproses sinkronisasi…" : "Proses Sinkronisasi"}
+            {syncing ? "Memproses Sinkronisasi…" : "Proses Sinkronisasi Sekarang"}
           </button>
-          <p className="text-sm text-slate-600" aria-live="polite">
+          <p className="text-xs text-[#66736F] text-center sm:text-left" aria-live="polite">
             {syncing
-              ? "Sedang mencocokkan data wisuda dengan SITASI dan Certiport…"
+              ? "Sedang membandingkan data wisuda dengan batch aktif SITASI & Certiport…"
               : busy
-              ? "Workbook sedang diperiksa oleh backend."
+              ? "Workbook sedang diperiksa oleh sistem."
               : file
-              ? "Workbook siap diproses."
-              : "Belum ada file dipilih."}
+              ? "Berkas siap divalidasi atau disinkronkan."
+              : "Belum ada berkas dipilih."}
           </p>
         </div>
       </form>
 
-      {error && <p ref={errorRef} tabIndex={-1} role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900">{error}</p>}
+      {error && (
+        <div ref={errorRef} tabIndex={-1} role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-xs font-medium text-red-900 shadow-sm">
+          {error}
+        </div>
+      )}
 
       {result && (
-        <section aria-labelledby="validation-result-title" className="space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-          <div ref={resultRef} tabIndex={-1} className="flex flex-col gap-2 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-teal-800 sm:flex-row sm:items-start sm:justify-between">
+        <section aria-labelledby="validation-result-title" className="space-y-5 rounded-2xl border border-[#DDE4E1] bg-white p-6 shadow-sm">
+          <div ref={resultRef} tabIndex={-1} className="flex flex-col gap-2 rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-800 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h2 id="validation-result-title" className="text-lg font-semibold text-slate-950">Hasil pemeriksaan</h2>
-              <p className="mt-1 text-sm text-slate-600" aria-live="polite">
-                {result.is_valid ? (result.empty_row_count > 0 || !result.layout_matches_template ? "Validasi dasar lolos dengan catatan." : "Validasi dasar lolos.") : "Perbaiki masalah berikut sebelum lanjut."}
+              <h2 id="validation-result-title" className="text-lg font-bold text-[#172321]">Hasil Pemeriksaan Validasi</h2>
+              <p className="mt-0.5 text-xs text-[#66736F]" aria-live="polite">
+                {result.is_valid
+                  ? (result.empty_row_count > 0 || !result.layout_matches_template ? "Validasi dasar lolos dengan catatan penting." : "Struktur workbook sesuai standar template wisuda.")
+                  : "Ditemukan masalah pada struktur kolom atau data wisuda."}
               </p>
             </div>
-            <span className={`w-fit rounded-full px-3 py-1 text-sm font-semibold ${result.is_valid ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>
-              {result.is_valid ? (result.empty_row_count > 0 || !result.layout_matches_template ? "Lolos dengan catatan" : "Lolos") : "Perlu diperbaiki"}
+            <span className={`w-fit rounded-full border px-3 py-1 text-xs font-semibold ${
+              result.is_valid
+                ? (result.empty_row_count > 0 || !result.layout_matches_template ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-800")
+                : "border-rose-200 bg-rose-50 text-rose-900"
+            }`}>
+              {result.is_valid ? (result.empty_row_count > 0 || !result.layout_matches_template ? "Lolos Dengan Catatan" : "Lolos Validasi") : "Perlu Perbaikan"}
             </span>
           </div>
 
           {result.is_valid && (
-            <div className="flex flex-col gap-3 rounded-lg border border-teal-200 bg-teal-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 rounded-xl border border-teal-200 bg-[#ECFAF8] p-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-semibold text-teal-950">File siap disinkronkan</p>
-                <p className="text-xs text-teal-800">Cocokkan data wisuda dengan batch aktif SITASI dan Certiport sekarang.</p>
+                <p className="text-xs font-bold text-teal-950">Berkas Siap Diproses Sinkronisasi</p>
+                <p className="text-xs text-teal-800">Mulai perbandingan exact NIM ke SITASI dan nama lengkap ke Certiport.</p>
               </div>
               <button
                 type="button"
                 onClick={handleSync}
                 disabled={syncing}
-                className="min-h-10 shrink-0 rounded-lg bg-teal-800 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-teal-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="min-h-9 shrink-0 rounded-lg bg-[#0F766E] px-4 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[#0F4B46] disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 {syncing ? "Sedang Memproses…" : "Mulai Sinkronisasi Sekarang"}
               </button>
@@ -179,56 +206,71 @@ export default function WisudaUploadPage() {
           )}
 
           <dl className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg bg-slate-50 p-4"><dt className="text-sm text-slate-600">Baris mahasiswa</dt><dd className="mt-1 text-2xl font-semibold tabular-nums text-slate-950">{result.student_count.toLocaleString("id-ID")}</dd></div>
-            <div className="rounded-lg bg-slate-50 p-4"><dt className="text-sm text-slate-600">Baris kosong</dt><dd className="mt-1 text-2xl font-semibold tabular-nums text-slate-950">{result.empty_row_count.toLocaleString("id-ID")}</dd></div>
-            <div className="rounded-lg bg-slate-50 p-4"><dt className="text-sm text-slate-600">Sheet dan kolom</dt><dd className="mt-1 text-base font-semibold text-slate-950">{result.sheet_name} · {result.columns.length} kolom</dd></div>
+            <div className="rounded-xl border border-[#DDE4E1] bg-[#F5F7F6] p-4">
+              <dt className="text-xs text-[#66736F]">Total Mahasiswa</dt>
+              <dd className="mt-1 text-2xl font-bold tabular-nums text-[#172321]">{result.student_count.toLocaleString("id-ID")}</dd>
+            </div>
+            <div className="rounded-xl border border-[#DDE4E1] bg-[#F5F7F6] p-4">
+              <dt className="text-xs text-[#66736F]">Baris Kosong</dt>
+              <dd className="mt-1 text-2xl font-bold tabular-nums text-[#172321]">{result.empty_row_count.toLocaleString("id-ID")}</dd>
+            </div>
+            <div className="rounded-xl border border-[#DDE4E1] bg-[#F5F7F6] p-4">
+              <dt className="text-xs text-[#66736F]">Sheet & Kolom</dt>
+              <dd className="mt-1 text-sm font-semibold text-[#172321]">{result.sheet_name} · {result.columns.length} kolom</dd>
+            </div>
           </dl>
 
           <div>
-            <h3 className="text-sm font-semibold text-slate-900">Batch master aktif saat diperiksa</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-[#66736F]">Batch Master Aktif Saat Pemeriksaan</h3>
             <dl className="mt-2 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-lg border border-slate-200 p-4"><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">SITASI</dt><dd className="mt-1 text-sm text-slate-800">{formatBatch(result.active_masters.sitasi)}</dd></div>
-              <div className="rounded-lg border border-slate-200 p-4"><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Certiport</dt><dd className="mt-1 text-sm text-slate-800">{formatBatch(result.active_masters.certiport)}</dd></div>
+              <div className="rounded-xl border border-[#DDE4E1] bg-white p-3.5 shadow-sm">
+                <dt className="text-[11px] font-semibold uppercase tracking-wide text-teal-800">Master SITASI</dt>
+                <dd className="mt-1 font-mono text-xs text-[#172321]">{formatBatch(result.active_masters.sitasi)}</dd>
+              </div>
+              <div className="rounded-xl border border-[#DDE4E1] bg-white p-3.5 shadow-sm">
+                <dt className="text-[11px] font-semibold uppercase tracking-wide text-teal-800">Master Certiport</dt>
+                <dd className="mt-1 font-mono text-xs text-[#172321]">{formatBatch(result.active_masters.certiport)}</dd>
+              </div>
             </dl>
           </div>
 
           {!result.layout_matches_template && (
-            <p className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-              Susunan kolom berbeda dari template. File tetap tidak diubah; periksa kolom sebelum tahap berikutnya.
+            <p className="rounded-lg border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-950">
+              Susunan kolom berbeda dari template baku. Berkas tetap dibaca apa adanya; pastikan kolom identitas mahasiswa sesuai sebelum melanjutkan.
             </p>
           )}
 
           {result.missing_columns.length > 0 && (
-            <p className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+            <p className="rounded-lg border border-red-200 bg-red-50 p-3.5 text-xs text-red-900">
               Kolom wajib belum ditemukan: {result.missing_columns.join(", ")}.
             </p>
           )}
 
           {result.empty_row_count > 0 && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-              <p>{result.empty_row_count.toLocaleString("id-ID")} baris kosong ditemukan: {result.empty_rows.join(", ") || "baris lainnya"}{result.empty_rows_truncated ? ", dan seterusnya" : ""}.</p>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-950">
+              <p>{result.empty_row_count.toLocaleString("id-ID")} baris kosong terdeteksi: {result.empty_rows.join(", ") || "baris lainnya"}{result.empty_rows_truncated ? ", dan seterusnya" : ""}.</p>
             </div>
           )}
 
           {result.issues.length > 0 && (
             <div>
-              <h3 className="text-sm font-semibold text-slate-900">Masalah validasi</h3>
-              <ul className="mt-2 divide-y divide-slate-200 rounded-lg border border-slate-200">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-[#66736F]">Daftar Temuan Masalah</h3>
+              <ul className="mt-2 divide-y divide-[#DDE4E1] rounded-xl border border-[#DDE4E1] bg-white">
                 {result.issues.map((issue, index) => (
-                  <li key={`${issue.code}-${issue.source_row}-${index}`} className="flex flex-col gap-1 px-4 py-3 text-sm sm:flex-row sm:gap-4">
-                    <span className="shrink-0 font-medium text-slate-700">{issue.source_row ? `Baris ${issue.source_row} · ${issue.field}` : issue.field}</span>
-                    <span className="text-slate-600">{issue.message}</span>
+                  <li key={`${issue.code}-${issue.source_row}-${index}`} className="flex flex-col gap-1 px-4 py-3 text-xs sm:flex-row sm:gap-4">
+                    <span className="shrink-0 font-medium text-[#172321]">{issue.source_row ? `Baris ${issue.source_row} · ${issue.field}` : issue.field}</span>
+                    <span className="text-[#66736F]">{issue.message}</span>
                   </li>
                 ))}
               </ul>
-              {result.issues_truncated && <p className="mt-2 text-sm text-slate-600">Daftar masalah dibatasi. Perbaiki yang tampil, lalu validasi kembali.</p>}
+              {result.issues_truncated && <p className="mt-2 text-xs text-[#66736F]">Daftar masalah dibatasi. Perbaiki temuan di atas lalu lakukan validasi ulang.</p>}
             </div>
           )}
 
-          <div className="border-t border-slate-200 pt-4">
-            <h3 className="text-sm font-semibold text-slate-900">Kolom workbook (urutan asli)</h3>
-            <p className="mt-1 break-words text-sm leading-6 text-slate-600">{result.columns.join(" · ")}</p>
-            <p className="mt-2 text-xs text-slate-500">Validasi hanya membaca workbook. Kolom Sertifikasi MOS, Sertifikasi MCF, dan Title Microsoft tidak ditulis ulang.</p>
+          <div className="border-t border-[#DDE4E1] pt-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-[#66736F]">Daftar Kolom Terbaca (Urutan Asli)</h3>
+            <p className="mt-1.5 break-words font-mono text-xs leading-relaxed text-[#172321]">{result.columns.join(" · ")}</p>
+            <p className="mt-2 text-[11px] text-[#66736F]">Prinsip non-destructive: validasi dan sinkronisasi tidak menimpa data asli tanpa persetujuan mapping final.</p>
           </div>
         </section>
       )}

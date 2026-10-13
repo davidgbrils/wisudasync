@@ -13,6 +13,7 @@ from app.services.normalization_service import (
     normalize_name,
     normalize_upper,
 )
+from app.core.prodi import is_mcf_relevant, resolve_kode_prodi, resolve_program_studi
 
 # Status hasil matching (sesuai AGENTS.md §4.5)
 VALID = "VALID"
@@ -44,7 +45,9 @@ CERTIPORT_REQUIRED_FIELDS = (
 CERTIPORT_PASS = {"PASS"}
 CERTIPORT_FAIL = {"FAIL"}
 
-FUZZY_THRESHOLD = 90
+FUZZY_THRESHOLD = 85
+FUZZY_STRONG_THRESHOLD = 95
+FUZZY_TOP_N = 5
 
 CATEGORY_MAP: dict[str, str] = {
     "MOS": "MICROSOFT OFFICE SPECIALIST",
@@ -171,32 +174,51 @@ def _build_attempt_evidence(attempt: dict) -> dict:
     }
 
 
+def _parse_numeric_score(val: Any) -> float | int | None:
+    """Parse nilai ujian ke bentuk numerik (int atau float) untuk evaluasi peringkat dan tampilan."""
+    if val is None:
+        return None
+    try:
+        s = str(val).strip().replace(",", ".")
+        if not s or s.upper() in {"NAN", "NONE", "NULL", "NAT"}:
+            return None
+        f = float(s)
+        return int(f) if f.is_integer() else f
+    except (ValueError, TypeError):
+        return None
+
+
 def _aggregate_exam_attempts(attempts: list[dict]) -> dict:
-    """Agremasi attempt untuk satu ujian (sertifikasi + sub_program).
+    """Agregasi attempt untuk satu ujian (sertifikasi + sub_program).
 
     Aturan:
-    - Jika ada attempt LULUS, bukti LULUS tetap disimpan — tidak ditimpa oleh fail.
-    - Semua attempt (LULUS, GAGAL, PENDING, dsb.) tetap dilacak.
-    - Status ujian (SITASI-only): LULUS → PERLU_VERIFIKASI (butuh Certiport untuk VALID),
-      semua gagal → TIDAK_LULUS, ada pending → PENDING, tidak dikenal → PERLU_VERIFIKASI.
+    - Jika mahasiswa memiliki beberapa percobaan dan ada yang LULUS, pilih percobaan yang
+      LULUS dengan skor tertinggi (memprioritaskan status kelulusan).
+    - Jika belum lulus (hanya 1 data atau semua percobaan gagal/pending), pilih percobaan
+      dengan skor tertinggi yang ada agar petugas tetap dapat melihat capaian nilainya.
+    - Semua attempt (LULUS, GAGAL, PENDING, dsb.) tetap dilacak di daftar 'attempts'.
     """
     has_lulus = False
     has_pending = False
     has_fail = False
-    lulus_evidence: dict | None = None
 
     processed_attempts = [_build_attempt_evidence(a) for a in attempts]
+
+    lulus_attempts: list[dict] = []
+    pending_attempts: list[dict] = []
+    fail_attempts: list[dict] = []
 
     for evidence in processed_attempts:
         status = evidence["status"]
         if status in LULUS_STATUSES:
             has_lulus = True
-            if lulus_evidence is None:
-                lulus_evidence = evidence
+            lulus_attempts.append(evidence)
         elif status in PENDING_STATUSES:
             has_pending = True
+            pending_attempts.append(evidence)
         elif status in FAIL_STATUSES:
             has_fail = True
+            fail_attempts.append(evidence)
 
     if has_lulus:
         exam_status = PERLU_VERIFIKASI
@@ -207,15 +229,35 @@ def _aggregate_exam_attempts(attempts: list[dict]) -> dict:
     else:
         exam_status = PERLU_VERIFIKASI
 
+    # Pemilihan selected_attempt dan best_score:
+    selected_attempt: dict | None = None
+    if lulus_attempts:
+        # Dari setiap percobaan mahasiswa yang lulus, cari yang skornya tertinggi
+        selected_attempt = max(
+            lulus_attempts,
+            key=lambda a: _parse_numeric_score(a.get("nilai")) if _parse_numeric_score(a.get("nilai")) is not None else -1.0,
+        )
+    elif processed_attempts:
+        # Jika belum lulus (1 data atau multi-attempt gagal), ambil percobaan dengan skor tertinggi
+        selected_attempt = max(
+            processed_attempts,
+            key=lambda a: _parse_numeric_score(a.get("nilai")) if _parse_numeric_score(a.get("nilai")) is not None else -1.0,
+        )
+
+    best_score = _parse_numeric_score(selected_attempt.get("nilai")) if selected_attempt else None
+
     result = {
         "has_lulus": has_lulus,
         "has_pending": has_pending,
         "has_fail": has_fail,
         "exam_status": exam_status,
+        "score": best_score,
+        "selected_attempt": selected_attempt,
         "attempts": processed_attempts,
     }
-    if lulus_evidence is not None:
-        result["lulus_evidence"] = lulus_evidence
+    if has_lulus and selected_attempt:
+        result["lulus_evidence"] = selected_attempt
+
     return result
 
 
@@ -274,12 +316,18 @@ def match_wisuda_to_sitasi(
         nim = normalize_code(raw_nim)
         wisuda_nama_norm = normalize_name(raw_nama) or ""
 
+        kp = resolve_kode_prodi(nim, row.get("kode_prodi"))
+        ps = resolve_program_studi(kp, row.get("program_studi"))
+
         result: dict[str, Any] = {
             "source_row": source_row,
             "nim": raw_nim if raw_nim is not None else None,
             "nim_normalized": nim,
             "nama": raw_nama,
+            "kode_prodi": kp,
+            "program_studi": ps,
             "name_match": None,
+            "sitasi_matched": False,
             "overall_status": DATA_TIDAK_DITEMUKAN,
             "exams": [],
             "evidence": {
@@ -325,6 +373,9 @@ def match_wisuda_to_sitasi(
         else:
             result["name_match"] = "DIFFERENT"
 
+        # Ketentuan: cocok di SITASI hanya bila NIM DAN nama sama.
+        result["sitasi_matched"] = result["name_match"] == "EXACT"
+
         # Kelompokkan attempt per ujian (sertifikasi + sub_program)
         exam_groups = _group_sitasi_by_exam(sitasi_records)
         exam_results = []
@@ -338,6 +389,8 @@ def match_wisuda_to_sitasi(
                 "has_lulus": agg["has_lulus"],
                 "has_pending": agg["has_pending"],
                 "has_fail": agg["has_fail"],
+                "score": agg.get("score"),
+                "selected_attempt": agg.get("selected_attempt"),
                 "attempts": agg["attempts"],
                 "lulus_evidence": agg.get("lulus_evidence"),
                 "evidence": {
@@ -423,8 +476,25 @@ def _map_category(sitasi_sertifikasi: str) -> str | None:
 
 
 def _map_category_reverse(certiport_program: str) -> str | None:
-    """Map Certiport program_name ke SITASI sertifikasi."""
-    return CATEGORY_MAP_REVERSE.get(certiport_program)
+    """Map Certiport program_name ke SITASI sertifikasi (MOS/MCF)."""
+    if not certiport_program:
+        return None
+    p = str(certiport_program).strip().upper()
+    if "OFFICE SPECIALIST" in p or p == "MOS":
+        return "MOS"
+    if "FUNDAMENTALS" in p or p == "MCF":
+        return "MCF"
+    return CATEGORY_MAP_REVERSE.get(p)
+
+
+def _canonical_exam_name(cert_name: str) -> str:
+    """Ambil nama ujian kanonikal dari nama sertifikasi Certiport."""
+    cleaned = clean_text(cert_name) or ""
+    c_upper = cleaned.upper()
+    for canonical, aliases in EXAM_ALIAS_DRAFT.items():
+        if c_upper == canonical or c_upper in aliases:
+            return canonical.title() if canonical in ("WORD", "EXCEL", "POWERPOINT") else canonical
+    return cleaned
 
 
 def _is_exam_alias_match(
@@ -453,21 +523,38 @@ def _is_exam_alias_match(
     return False, "no_match"
 
 
+def _fuzzy_name_score(target: str, candidate: str) -> int:
+    """Skor kemiripan nama tahan typo & urutan suku kata (fuzzy per kata).
+
+    Mengambil skor maksimum dari beberapa metrik: kemiripan menyeluruh,
+    kecocokan bagian, dan perbandingan berbasis kata (token). Cocok untuk
+    mendeteksi variasi urutan suku kata maupun salah ketik ringan.
+    """
+    return int(
+        max(
+            fuzz.ratio(target, candidate),
+            fuzz.partial_ratio(target, candidate),
+            fuzz.token_sort_ratio(target, candidate),
+            fuzz.token_set_ratio(target, candidate),
+        )
+    )
+
+
 def _find_certiport_candidates_fuzzy(
     target_name: str,
     certiport_index: dict[str, list[dict]],
     threshold: int = FUZZY_THRESHOLD,
 ) -> list[dict]:
-    """Cari kandidat Certiport berdasar nama normalized + fuzzy score.
+    """Cari kandidat Certiport berdasar nama normalized + skor fuzzy per kata.
 
     Mengembalikan list of {name, score, reason, records} diurutkan score descending.
     Nama identik (score 100) tetap dikembalikan sebagai kandidat, bukan auto-valid.
     """
     candidates: list[dict] = []
     for name, records in certiport_index.items():
-        score = fuzz.ratio(target_name, name)
+        score = _fuzzy_name_score(target_name, name)
         if score >= threshold:
-            reason = "exact_name" if score == 100 else "fuzzy_candidate"
+            reason = "exact_name" if name == target_name else "fuzzy_candidate"
             candidates.append({
                 "name": name,
                 "score": score,
@@ -478,14 +565,32 @@ def _find_certiport_candidates_fuzzy(
     return candidates
 
 
+def _sitasi_only_combined(exam: dict, sitasi_matched: bool) -> str:
+    """Status ujian bila hanya ada bukti SITASI (tanpa Certiport).
+
+    Cocok NIM+nama di SITASI → status SITASI sudah cukup (LULUS/TIDAK LULUS/PENDING).
+    """
+    if not sitasi_matched:
+        return PERLU_VERIFIKASI
+    if exam.get("has_lulus"):
+        return VALID
+    if exam.get("has_pending"):
+        return PENDING
+    if exam.get("exam_status") == TIDAK_LULUS or exam.get("has_fail"):
+        return TIDAK_LULUS
+    return PERLU_VERIFIKASI
+
+
 def _cross_validate_exam(
     sitasi_exam: dict,
     certiport_records: list[dict],
     alias_status: str = EXAM_ALIAS_STATUS,
+    sitasi_matched: bool = False,
 ) -> dict:
     """Validasi silang satu ujian SITASI terhadap record Certiport kandidat.
 
     Mengembalikan dict dengan certiport_status, combined_status, evidence, reason.
+    Cocok NIM+nama di SITASI → status SITASI cukup; Certiport hanya bukti silang.
     """
     sitasi_sertifikasi = sitasi_exam.get("sertifikasi", "")
     sitasi_sub = sitasi_exam.get("sub_program", "")
@@ -514,7 +619,7 @@ def _cross_validate_exam(
     if not matching_certiport:
         return {
             "certiport_status": DATA_TIDAK_DITEMUKAN,
-            "combined_status": PERLU_VERIFIKASI if has_sitasi_lulus else sitasi_status,
+            "combined_status": _sitasi_only_combined(sitasi_exam, sitasi_matched),
             "certiport_evidence": [],
             "reason": "Tidak ditemukan record Certiport dengan program dan ujian yang sesuai.",
         }
@@ -544,34 +649,114 @@ def _cross_validate_exam(
 
     uses_draft_alias = any("draft" in r.lower() for r in exam_match_reasons if r)
 
-    if has_sitasi_lulus and has_cert_pass:
-        if uses_draft_alias:
+    if sitasi_matched:
+        if has_sitasi_lulus and has_cert_fail:
             combined = PERLU_VERIFIKASI
-            reason = "SITASI LULUS + Certiport PASS, tapi alias ujian masih DRAFT (ADR-005)."
+            reason = "SITASI LULUS tapi Certiport FAIL; konflik sumber."
+        elif has_sitasi_lulus:
+            if has_cert_pass and uses_draft_alias:
+                combined = PERLU_VERIFIKASI
+                reason = "SITASI LULUS + Certiport PASS, tapi alias ujian masih DRAFT (ADR-005)."
+            else:
+                combined = VALID
+                reason = "SITASI LULUS (NIM+nama cocok); status cukup tanpa Certiport PASS."
+        elif not has_sitasi_lulus and has_cert_pass:
+            combined = PERLU_VERIFIKASI
+            reason = "Certiport PASS tapi SITASI tidak ada LULUS; konflik sumber."
+        elif sitasi_status == PENDING:
+            combined = PENDING
+            reason = "SITASI masih PENDING."
+        elif has_cert_fail and sitasi_status == TIDAK_LULUS:
+            combined = TIDAK_LULUS
+            reason = "SITASI dan Certiport keduanya tidak lulus."
         else:
-            combined = VALID
-            reason = "SITASI LULUS dan Certiport PASS konsisten."
-    elif has_sitasi_lulus and not has_cert_pass:
-        combined = PERLU_VERIFIKASI
-        reason = "SITASI LULUS tapi Certiport tidak ada PASS; konflik sumber."
-    elif not has_sitasi_lulus and has_cert_pass:
-        combined = PERLU_VERIFIKASI
-        reason = "Certiport PASS tapi SITASI tidak ada LULUS; konflik sumber."
-    elif has_cert_fail and sitasi_status == TIDAK_LULUS:
-        combined = TIDAK_LULUS
-        reason = "SITASI dan Certiport keduanya tidak lulus."
-    elif sitasi_status == PENDING:
-        combined = PENDING
-        reason = "SITASI masih PENDING."
+            combined = PERLU_VERIFIKASI
+            reason = "Bukti belum cukup untuk kesimpulan."
     else:
-        combined = PERLU_VERIFIKASI
-        reason = "Bukti belum cukup untuk kesimpulan."
+        # NIM+nama tidak cocok di SITASI → Certiport jadi penentu (nama harus cocok).
+        if has_cert_pass:
+            combined = VALID
+            reason = "Certiport PASS dan nama cocok; tidak cocok pada SITASI."
+        elif has_cert_fail:
+            combined = TIDAK_LULUS
+            reason = "Certiport FAIL dan nama cocok; tidak cocok pada SITASI."
+        else:
+            combined = PERLU_VERIFIKASI
+            reason = "Bukti Certiport belum cukup (INCO/kosong)."
 
     return {
         "certiport_status": "PASS" if has_cert_pass else ("FAIL" if has_cert_fail else PERLU_VERIFIKASI),
         "combined_status": combined,
         "certiport_evidence": cert_evidence,
         "reason": reason,
+    }
+
+
+def _build_certiport_only_exam(
+    rec: dict,
+    certiport_import_id: str | None = None,
+    fuzzy: bool = False,
+) -> dict:
+    """Bangun entri ujian dari rekaman Certiport yang belum tercatat di data SITASI."""
+    prog_raw = rec.get("program_name") or ""
+    cat = _map_category_reverse(prog_raw) or ("MOS" if "OFFICE" in prog_raw.upper() or "MOS" in prog_raw.upper() else ("MCF" if "FUNDAMENTAL" in prog_raw.upper() or "MCF" in prog_raw.upper() else "OTHER"))
+    cert_name = rec.get("certification_name") or ""
+    sub_prog = _canonical_exam_name(cert_name)
+    result_val = _normalize_certiport_result(rec.get("result"))
+    is_pass = result_val in CERTIPORT_PASS
+    is_fail = result_val in CERTIPORT_FAIL
+
+    if fuzzy:
+        reason = f"Kandidat fuzzy pada Certiport ({result_val}); belum ada rekaman attempt di data SITASI."
+    elif is_pass:
+        reason = "Sertifikasi tercatat di Certiport (PASS), namun belum ada rekaman attempt di data SITASI."
+    elif is_fail:
+        reason = "Ujian tercatat di Certiport (FAIL), tidak ada rekaman attempt di data SITASI."
+    else:
+        reason = f"Ujian tercatat di Certiport ({result_val}), belum ada rekaman attempt di data SITASI."
+
+    cert_evidence = [{
+        "source": CERTIPORT_SOURCE,
+        "id": rec.get("id"),
+        "source_row": rec.get("source_row"),
+        "full_name": rec.get("full_name"),
+        "program_name": rec.get("program_name"),
+        "certification_name": rec.get("certification_name"),
+        "score": rec.get("score"),
+        "result": result_val,
+        "exam_alias_reason": "certiport_direct_read",
+    }]
+
+    if fuzzy:
+        combined = PERLU_VERIFIKASI
+    elif is_pass:
+        combined = VALID
+    elif is_fail:
+        combined = TIDAK_LULUS
+    else:
+        combined = PERLU_VERIFIKASI
+
+    return {
+        "sertifikasi": cat,
+        "sub_program": sub_prog,
+        "exam_status": combined,
+        "has_lulus": False,
+        "has_pending": False,
+        "has_fail": is_fail,
+        "score": _parse_numeric_score(rec.get("score")),
+        "attempts": [],
+        "certiport_only": True,
+        "certiport_validation": {
+            "certiport_status": "PASS" if is_pass else ("FAIL" if is_fail else PERLU_VERIFIKASI),
+            "combined_status": combined,
+            "certiport_evidence": cert_evidence,
+            "reason": reason,
+        },
+        "evidence": {
+            "source": CERTIPORT_SOURCE,
+            "import_id": certiport_import_id,
+            "attempt_count": 0,
+        },
     }
 
 
@@ -582,14 +767,9 @@ def match_sitasi_to_certiport(
 ) -> list[dict]:
     """Cross-validate hasil Wisuda→SITASI terhadap batch Certiport aktif.
 
-    Pure function. Menerima output match_wisuda_to_sitasi dan list Certiport rows.
-    Menambahkan certiport_match dan combined_status ke setiap exam.
-
-    Aturan:
-    - Cari kandidat Certiport berdasar nama normalized (dari SITASI atau wisuda).
-    - Kandidat unik: lanjut validasi ujian. Banyak orang dengan nama sama: PERLU_VERIFIKASI.
-    - Program dan ujian harus sesuai (kategori + alias). Alias DRAFT bukan auto-valid.
-    - RapidFuzz hanya untuk menyarankan kandidat, bukan memvalidasi.
+    Mengecek NIM di SITASI dan Nama di Certiport secara langsung. Jika data
+    mahasiswa atau ujian tidak ada di SITASI tetapi ada di Certiport, data Certiport
+    tetap dibaca dan dicatat sebagai bukti verifikasi.
     """
     cert_index = build_certiport_name_index(certiport_rows)
     results: list[dict] = []
@@ -597,18 +777,11 @@ def match_sitasi_to_certiport(
     for ws_result in wisuda_sitasi_results:
         enriched = {**ws_result}
         enriched["certiport_import_id"] = certiport_import_id
-
-        if ws_result["overall_status"] == DATA_TIDAK_DITEMUKAN:
-            enriched["certiport_match"] = {
-                "status": "SKIPPED",
-                "reason": "Tidak ada data SITASI; Certiport matching dilewati.",
-                "candidates": [],
-            }
-            results.append(enriched)
-            continue
+        exams = list(ws_result.get("exams", []))
+        enriched["exams"] = exams
 
         nama_wisuda = normalize_name(ws_result.get("nama"))
-        exams = ws_result.get("exams", [])
+        sitasi_matched = bool(ws_result.get("sitasi_matched", False))
 
         nama_sitasi_set: set[str] = set()
         for exam in exams:
@@ -636,8 +809,11 @@ def match_sitasi_to_certiport(
         unique_persons = set()
         all_candidate_records: list[dict] = []
         for c in all_candidates:
-            for rec in c["records"]:
+            # Ambiguity dinilai hanya dari kandidat sangat mirip (>= 95),
+            # sedangkan daftar saran tetap memakai ambang lebih longgar (85).
+            if c["score"] >= FUZZY_STRONG_THRESHOLD:
                 unique_persons.add(c["name"])
+            for rec in c["records"]:
                 all_candidate_records.append(rec)
 
         candidate_summary = [
@@ -651,14 +827,19 @@ def match_sitasi_to_certiport(
                 "reason": "Tidak ditemukan kandidat Certiport berdasar nama.",
                 "candidates": [],
             }
-            for exam in enriched.get("exams", []):
+            if not exams:
+                enriched["overall_status"] = DATA_TIDAK_DITEMUKAN
+                results.append(enriched)
+                continue
+
+            for exam in exams:
                 exam["certiport_validation"] = {
-                    "combined_status": PERLU_VERIFIKASI if exam.get("has_lulus") else exam.get("exam_status", PERLU_VERIFIKASI),
+                    "combined_status": _sitasi_only_combined(exam, sitasi_matched),
                     "certiport_status": DATA_TIDAK_DITEMUKAN,
                     "certiport_evidence": [],
                     "reason": "Tidak ada kandidat Certiport.",
                 }
-            enriched["overall_status"] = _compute_combined_overall(enriched.get("exams", []))
+            enriched["overall_status"] = _compute_combined_overall(exams)
             results.append(enriched)
             continue
 
@@ -668,7 +849,7 @@ def match_sitasi_to_certiport(
                 "reason": f"Ditemukan {len(unique_persons)} nama berbeda sebagai kandidat; risiko salah orang.",
                 "candidates": candidate_summary,
             }
-            for exam in enriched.get("exams", []):
+            for exam in exams:
                 exam["certiport_validation"] = {
                     "combined_status": PERLU_VERIFIKASI,
                     "certiport_status": PERLU_VERIFIKASI,
@@ -679,25 +860,44 @@ def match_sitasi_to_certiport(
             results.append(enriched)
             continue
 
+        exact_names = set(search_names)
         exact_records = []
         for c in all_candidates:
-            if c["score"] == 100:
+            if c["name"] in exact_names:
                 exact_records.extend(c["records"])
 
         if not exact_records:
             enriched["certiport_match"] = {
-                "status": PERLU_VERIFIKASI,
-                "reason": "Hanya kandidat fuzzy (bukan exact name); perlu review manusia.",
+                "status": PERLU_VERIFIKASI if not sitasi_matched else "FUZZY_ONLY",
+                "reason": (
+                    "Hanya kandidat fuzzy (bukan exact name); perlu review manusia."
+                    if not sitasi_matched
+                    else "Hanya kandidat Certiport mirip; SITASI sudah cocok (NIM+nama)."
+                ),
                 "candidates": candidate_summary,
             }
-            for exam in enriched.get("exams", []):
-                exam["certiport_validation"] = {
-                    "combined_status": PERLU_VERIFIKASI,
-                    "certiport_status": PERLU_VERIFIKASI,
-                    "certiport_evidence": [],
-                    "reason": "Kandidat hanya fuzzy match; belum bisa auto-validate.",
-                }
-            enriched["overall_status"] = PERLU_VERIFIKASI
+            if not sitasi_matched:
+                target_records = all_candidate_records
+                matched_cert_ids = set()
+                for exam in exams:
+                    validation = _cross_validate_exam(exam, target_records, sitasi_matched=False)
+                    validation["combined_status"] = PERLU_VERIFIKASI
+                    exam["certiport_validation"] = validation
+                    for ev in validation.get("certiport_evidence", []):
+                        matched_cert_ids.add(ev.get("id"))
+
+                for rec in target_records:
+                    if rec.get("id") not in matched_cert_ids:
+                        matched_cert_ids.add(rec.get("id"))
+                        extra_exam = _build_certiport_only_exam(rec, certiport_import_id, fuzzy=True)
+                        exams.append(extra_exam)
+
+                enriched["overall_status"] = PERLU_VERIFIKASI
+            else:
+                # SITASI sudah cocok (NIM+nama) → status SITASI cukup; kandidat mirip hanya saran.
+                for exam in exams:
+                    exam["certiport_validation"] = _cross_validate_exam(exam, [], sitasi_matched=True)
+                enriched["overall_status"] = _compute_combined_overall(exams)
             results.append(enriched)
             continue
 
@@ -707,14 +907,25 @@ def match_sitasi_to_certiport(
             "candidates": candidate_summary,
         }
 
-        for exam in enriched.get("exams", []):
-            validation = _cross_validate_exam(exam, exact_records)
+        matched_cert_ids = set()
+        for exam in exams:
+            validation = _cross_validate_exam(exam, exact_records, sitasi_matched=sitasi_matched)
             exam["certiport_validation"] = validation
+            for ev in validation.get("certiport_evidence", []):
+                matched_cert_ids.add(ev.get("id"))
 
-        enriched["overall_status"] = _compute_combined_overall(enriched.get("exams", []))
+        # Baca seluruh record Certiport yang belum ada di SITASI
+        for rec in exact_records:
+            if rec.get("id") not in matched_cert_ids:
+                matched_cert_ids.add(rec.get("id"))
+                extra_exam = _build_certiport_only_exam(rec, certiport_import_id, fuzzy=False)
+                exams.append(extra_exam)
+
+        enriched["overall_status"] = _compute_combined_overall(exams)
         results.append(enriched)
 
     return results
+
 
 
 def _compute_combined_overall(exams: list[dict]) -> str:
@@ -727,6 +938,21 @@ def _compute_combined_overall(exams: list[dict]) -> str:
         cv = e.get("certiport_validation", {})
         statuses.append(cv.get("combined_status", e.get("exam_status", PERLU_VERIFIKASI)))
 
+    if PERLU_VERIFIKASI in statuses:
+        return PERLU_VERIFIKASI
+    if PENDING in statuses:
+        return PENDING
+    if all(s == VALID for s in statuses):
+        return VALID
+    if all(s == TIDAK_LULUS for s in statuses):
+        return TIDAK_LULUS
+    return PERLU_VERIFIKASI
+
+
+def _overall_from_statuses(statuses: list[str]) -> str:
+    """Prioritas status keseluruhan dari daftar status program (relevan)."""
+    if not statuses:
+        return PERLU_VERIFIKASI
     if PERLU_VERIFIKASI in statuses:
         return PERLU_VERIFIKASI
     if PENDING in statuses:
@@ -753,9 +979,10 @@ REASON_CODES = {
     "R08_MULTIPLE_CANDIDATES": "Kandidat nama ganda; risiko salah orang.",
     "R09_FUZZY_ONLY": "Hanya kandidat fuzzy (bukan exact name); perlu review manusia.",
     "R10_EXAM_MISMATCH": "Kategori program sama tapi ujian berbeda; bukan validasi silang.",
-    "R11_NO_SITASI": "NIM tidak ditemukan pada batch SITASI aktif.",
+    "R11_NO_SITASI": "Data tidak ditemukan pada batch SITASI maupun Certiport aktif.",
     "R12_INCO": "Hasil Certiport INCO/kosong; bukti tidak cukup.",
     "R13_UNKNOWN_STATUS": "Status tidak dikenali; perlu review.",
+    "R14_CERTIPORT_ONLY": "Sertifikasi tercatat di Certiport (PASS), namun belum ada rekaman attempt di data SITASI.",
 }
 
 
@@ -764,6 +991,8 @@ def _classify_reason_code(certiport_validation: dict, certiport_match: dict | No
     reason_text = certiport_validation.get("reason", "")
     cert_status = certiport_validation.get("certiport_status", "")
 
+    if "belum ada rekaman attempt di data SITASI" in reason_text or "belum tercatat di data SITASI" in reason_text:
+        return "R14_CERTIPORT_ONLY"
     if combined == VALID:
         return "R01_VALID"
     if "DRAFT" in reason_text or "draft" in reason_text.lower():
@@ -816,6 +1045,8 @@ def _build_program_summary(exams: list[dict]) -> dict[str, dict]:
         exam_details = []
         reason_codes = []
         needs_review = False
+        program_scores: list[float | int] = []
+        exam_scores_map: dict[str, Any] = {}
 
         for exam in program_exams:
             cv = exam.get("certiport_validation", {})
@@ -828,14 +1059,40 @@ def _build_program_summary(exams: list[dict]) -> dict[str, dict]:
             if combined != VALID:
                 needs_review = True
 
+            is_cert_only = exam.get("certiport_only", False)
+            sit_score = None if is_cert_only else exam.get("score")
+            cert_ev = cv.get("certiport_evidence", [])
+            cert_score = _parse_numeric_score(cert_ev[0].get("score")) if cert_ev else (_parse_numeric_score(exam.get("score")) if is_cert_only else None)
+            effective_score = cert_score if is_cert_only else (sit_score if sit_score is not None else cert_score)
+
+            sub_name = exam.get("sub_program", "")
+            if effective_score is not None:
+                program_scores.append(effective_score)
+                exam_scores_map[sub_name] = effective_score
+
+            selected_att = exam.get("selected_attempt") or (exam.get("attempts", [{}])[0] if exam.get("attempts") else {})
+            sitasi_name = None if is_cert_only else selected_att.get("nama")
+            sitasi_status = None if is_cert_only else selected_att.get("status")
+
+            certiport_name = cert_ev[0].get("full_name") if cert_ev else None
+            certiport_result = cert_ev[0].get("result") if cert_ev else None
+
             exam_details.append({
-                "sub_program": exam.get("sub_program", ""),
+                "sub_program": sub_name,
                 "exam_status": exam.get("exam_status", ""),
                 "combined_status": combined,
+                "score": effective_score,
+                "sitasi_score": sit_score,
+                "sitasi_name": sitasi_name,
+                "sitasi_status": sitasi_status,
+                "certiport_score": cert_score,
+                "certiport_name": certiport_name,
+                "certiport_status": certiport_result,
                 "reason_code": rc,
                 "has_lulus": exam.get("has_lulus", False),
-                "certiport_evidence": cv.get("certiport_evidence", []),
+                "certiport_evidence": cert_ev,
                 "sitasi_attempt_count": len(exam.get("attempts", [])),
+                "certiport_only": exam.get("certiport_only", False),
             })
 
         if PERLU_VERIFIKASI in statuses:
@@ -849,8 +1106,15 @@ def _build_program_summary(exams: list[dict]) -> dict[str, dict]:
         else:
             program_status = PERLU_VERIFIKASI
 
+        best_program_score = max(program_scores) if program_scores else None
+        sitasi_names = [ed["sitasi_name"] for ed in exam_details if ed.get("sitasi_name")]
+        certiport_names = [ed["certiport_name"] for ed in exam_details if ed.get("certiport_name")]
         summary[program] = {
             "status": program_status,
+            "score": best_program_score,
+            "scores": exam_scores_map,
+            "sitasi_name": sitasi_names[0] if sitasi_names else None,
+            "certiport_name": certiport_names[0] if certiport_names else None,
             "exam_count": len(program_exams),
             "exam_details": exam_details,
             "reason_codes": sorted(set(reason_codes)),
@@ -887,12 +1151,22 @@ def validate_wisuda_complete(
 
         if row["overall_status"] == DATA_TIDAK_DITEMUKAN:
             validated["program_summary"] = {}
-            validated["mos_status"] = DATA_TIDAK_DITEMUKAN
-            validated["mcf_status"] = DATA_TIDAK_DITEMUKAN
-            validated["validation_status"] = DATA_TIDAK_DITEMUKAN
-            validated["reason_codes"] = ["R11_NO_SITASI"]
-            validated["needs_review"] = True
-            validated["review_flags"] = ["NIM tidak ditemukan di SITASI"]
+            validated["mos_score"] = None
+            validated["mcf_score"] = None
+            if not row.get("nim_normalized"):
+                validated["mos_status"] = None
+                validated["mcf_status"] = None
+                validated["validation_status"] = PERLU_VERIFIKASI
+                validated["reason_codes"] = ["R13_UNKNOWN_STATUS"]
+                validated["needs_review"] = True
+                validated["review_flags"] = ["NIM tidak valid/kosong pada baris wisuda"]
+            else:
+                validated["mos_status"] = DATA_TIDAK_DITEMUKAN
+                validated["mcf_status"] = DATA_TIDAK_DITEMUKAN
+                validated["validation_status"] = DATA_TIDAK_DITEMUKAN
+                validated["reason_codes"] = ["R11_NO_SITASI"]
+                validated["needs_review"] = True
+                validated["review_flags"] = ["Data tidak ditemukan di SITASI maupun Certiport"]
             final.append(validated)
             continue
 
@@ -905,23 +1179,51 @@ def validate_wisuda_complete(
         for exam in row.get("exams", []):
             exam.pop("_certiport_match_ref", None)
 
+        # MCF hanya relevan untuk prodi tertentu (mis. 31 Informatika, 32 Sistem Informasi).
+        mcf_relevant = is_mcf_relevant(row.get("kode_prodi"))
+
         validated["program_summary"] = program_summary
         validated["mos_status"] = program_summary.get("MOS", {}).get("status", DATA_TIDAK_DITEMUKAN)
-        validated["mcf_status"] = program_summary.get("MCF", {}).get("status", DATA_TIDAK_DITEMUKAN)
+        validated["mos_score"] = program_summary.get("MOS", {}).get("score")
+        if mcf_relevant:
+            validated["mcf_status"] = program_summary.get("MCF", {}).get("status", DATA_TIDAK_DITEMUKAN)
+            validated["mcf_score"] = program_summary.get("MCF", {}).get("score")
+        else:
+            validated["mcf_status"] = None
+            validated["mcf_score"] = None
 
         all_reason_codes: list[str] = []
         needs_review = False
         review_flags: list[str] = []
 
         for prog_name, prog_data in program_summary.items():
+            if prog_name == "MCF" and not mcf_relevant:
+                continue
             all_reason_codes.extend(prog_data.get("reason_codes", []))
             if prog_data.get("needs_review"):
                 needs_review = True
                 review_flags.append(f"{prog_name}: perlu review")
 
+        relevant_statuses: list[str] = []
+        for prog_name, prog_data in program_summary.items():
+            if prog_name == "MCF" and not mcf_relevant:
+                continue
+            relevant_statuses.append(prog_data.get("status") or "")
+        relevant_statuses = [s for s in relevant_statuses if s]
+        overall = (
+            _overall_from_statuses(relevant_statuses)
+            if relevant_statuses
+            else row.get("overall_status", PERLU_VERIFIKASI)
+        )
+
         if row.get("name_match") in ("DIFFERENT", "PARTIAL"):
             needs_review = True
-            review_flags.append(f"Nama tidak cocok persis: name_match={row['name_match']}")
+            review_flags.append(f"Nama tidak cocok persis di SITASI: name_match={row['name_match']}")
+
+        certiport_only_exams = [e for e in row.get("exams", []) if e.get("certiport_only")]
+        if certiport_only_exams:
+            needs_review = True
+            review_flags.append("Sertifikasi terbaca dari Certiport (tanpa rekaman SITASI)")
 
         cm_status = certiport_match.get("status", "")
         if cm_status == PERLU_VERIFIKASI:
@@ -929,13 +1231,20 @@ def validate_wisuda_complete(
             cm_reason = certiport_match.get("reason", "")
             if "nama" in cm_reason.lower() or "salah orang" in cm_reason.lower():
                 review_flags.append("Kandidat Certiport nama ganda")
-            elif "fuzzy" in cm_reason.lower():
-                review_flags.append("Kandidat Certiport hanya fuzzy match")
+            elif "fuzzy" in cm_reason.lower() or "mirip" in cm_reason.lower():
+                review_flags.append("Kandidat Certiport hanya mirip (fuzzy)")
+            candidates = certiport_match.get("candidates", []) or []
+            if candidates:
+                top = candidates[:FUZZY_TOP_N]
+                review_flags.append(
+                    "Kandidat Certiport mirip: "
+                    + ", ".join(f"{c.get('name')} ({c.get('score')})" for c in top)
+                )
 
         validated["reason_codes"] = sorted(set(all_reason_codes))
         validated["needs_review"] = needs_review
         validated["review_flags"] = review_flags
-        validated["validation_status"] = row.get("overall_status", PERLU_VERIFIKASI)
+        validated["validation_status"] = overall
 
         final.append(validated)
 

@@ -1,7 +1,7 @@
 # 08 — Kontrak REST API Frontend ↔ Backend
 
 **Prefix:** `/api/v1` · **Format:** JSON (kecuali upload `multipart/form-data` dan download `.xlsx`).
-Proses sync, review, export, dan dashboard tetap **rencana**; endpoint validasi upload Wisuda ditambahkan pada Tahap 07. Auth SITASI/Certiport serta `/auth/me` diterapkan pada Tahap 05.
+Seluruh endpoint SITASI/Certiport/Sync beserta `/auth/me` **sudah diimplementasikan** dan diuji dengan fixture lokal (134 test backend PASS). Runtime terhadap Supabase development berizin **belum dijalankan**.
 
 ## 1. Prinsip umum
 - Semua route SITASI/Certiport mewajibkan `Authorization: Bearer <access_token>`. Backend memvalidasi token melalui Supabase Auth dan cek `profiles.id`, `is_active`, serta `role` tepercaya (`staff`/`admin`).
@@ -24,34 +24,34 @@ Catatan: Bentuk respons yang sudah ada pada starter dapat berbeda dari contoh ta
 ## 2. Daftar endpoint
 | Metode | Path | Keterangan | Status |
 |---|---|---|---|
-| GET | `/health` | Cek proses FastAPI | SUDAH ADA |
-| GET | `/auth/me` | Profil petugas aktif dari allowlist server | SUDAH ADA |
+| GET | `/health` | Cek proses FastAPI (publik) | SUDAH ADA |
+| GET | `/auth/me` | Profil petugas aktif dari allowlist server | SUDAH ADA, petugas saja |
 | GET | `/sitasi/batch` | Metadata batch SITASI aktif | SUDAH ADA, petugas saja |
-| GET | `/sitasi` | List/filter master SITASI aktif | SUDAH ADA |
+| GET | `/sitasi` | List/filter master SITASI aktif | SUDAH ADA, petugas saja |
 | POST | `/sitasi/import` | Import Excel SITASI | SUDAH ADA, petugas saja |
-| GET | `/certiport` | List/filter master Certiport aktif | SUDAH ADA |
 | GET | `/certiport/batch` | Metadata batch Certiport aktif | SUDAH ADA, petugas saja |
+| GET | `/certiport` | List/filter master Certiport aktif | SUDAH ADA, petugas saja |
 | POST | `/certiport/import` | Import Excel Certiport | SUDAH ADA, petugas saja |
 | POST | `/sync/validate` | Validasi read-only workbook Wisuda dan ringkasan batch aktif | SUDAH ADA, petugas saja |
-| GET | `/dashboard/summary` | Ringkasan master/proses | RENCANA |
-| POST | `/sync` | Upload Wisuda + proses | RENCANA |
-| GET | `/sync` | Riwayat sesi | RENCANA |
-| GET | `/sync/{id}` | Ringkasan satu sesi | RENCANA |
-| GET | `/sync/{id}/results` | Hasil per baris dengan filter | RENCANA |
-| GET | `/sync/{id}/results/{result_id}` | Detail dan sumber bukti | RENCANA |
-| PATCH | `/sync/{id}/results/{result_id}/review` | Review manual | RENCANA |
-| GET | `/sync/{id}/export` | Download workbook final | RENCANA |
+| POST | `/sync` | Upload Wisuda + jalankan sinkronisasi (HTTP 201) | SUDAH ADA, petugas saja |
+| GET | `/sync` | Riwayat sesi (paginasi) | SUDAH ADA, petugas saja |
+| GET | `/sync/{session_id}` | Ringkasan satu sesi (404 bila tak ada) | SUDAH ADA, petugas saja |
+| GET | `/sync/{session_id}/results` | Hasil per baris dengan filter status/search/needs_review | SUDAH ADA, petugas saja |
+| GET | `/sync/{session_id}/results/{result_id}` | Detail dan sumber bukti + riwayat review | SUDAH ADA, petugas saja |
+| PATCH | `/sync/{session_id}/results/{result_id}/review` | Review manual (jejak audit append-only) | SUDAH ADA, petugas saja |
+| GET | `/sync/{session_id}/export` | Download workbook; `mode=draft` (200) / `mode=final` (403 sampai disahkan) | SUDAH ADA, petugas saja |
+| GET | `/dashboard/summary` | Ringkasan master/proses | RENCANA (tidak dipakai; UI memakai endpoint batch langsung) |
 
 ### `POST /sync/validate`
 Request multipart `file` berformat `.xlsx` dengan sheet `Wisuda`. Endpoint ini hanya membaca workbook; tidak menyimpan, mengubah, atau memetakan kolom sertifikasi. Header `NIM` dan `Nama` wajib. Respons mencakup jumlah baris mahasiswa, baris kosong, susunan kolom, masalah per nomor baris tanpa nilai NIM/nama, serta ringkasan batch SITASI dan Certiport aktif. Formula pada NIM/Nama, NIM kosong/tidak aman, dan duplikat menghasilkan masalah validasi. Baris kosong dilaporkan terpisah dan tidak dihitung sebagai mahasiswa.
 
 ## 3. Upload data master
 ### `POST /sitasi/import`
-Form: `file` (Excel `.xlsx`, maksimum default 10 MiB; dapat diatur melalui `MAX_UPLOAD_SIZE_BYTES`). Sheet wajib `Master_Data`. Parser menolak formula dan workbook bermacro.
+Form: `file` (Excel `.xlsx`, maksimum default 10 MiB; dapat diatur melalui `MAX_UPLOAD_SIZE_BYTES`). Sheet wajib `Master_Data`. Parser menolak formula pada kolom wajib dan workbook bermacro.
 Validasi header wajib: `NIM`, `Nama`, `Fakultas`, `Kode NIM`, `Program Studi`, `Angkatan`, `Sertifikasi`, `Sub Program`, `Nilai`, `Status`.
 
 ### `POST /certiport/import`
-Form: `file` (Excel `.xlsx`, maksimum default 10 MiB; dapat diatur melalui `MAX_UPLOAD_SIZE_BYTES`). Sheet wajib `Results (264) Plus`. Parser menolak formula dan workbook bermacro.
+Form: `file` (Excel `.xlsx`, maksimum default 10 MiB; dapat diatur melalui `MAX_UPLOAD_SIZE_BYTES`). Sheet wajib `Results (264) Plus`. Parser menolak formula pada kolom wajib dan workbook bermacro. Pengecualian: kolom `Full Name` boleh berupa formula CONCATENATE (lazim pada ekspor resmi); nilainya dibaca dari cache, dan bila tidak tersedia diturunkan dari `First Name` + `Last Name`.
 Header wajib: `First Name`, `Last Name`, `Full Name`, `Program Name`, `Certification Name`, `Score`, `Result`.
 
 Respons contoh rancangan:

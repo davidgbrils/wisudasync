@@ -39,6 +39,10 @@ class Query:
     def order(self, *_args, **_kwargs):
         return self
 
+    def upsert(self, data: dict, *_args, **_kwargs):
+        self.profile = data
+        return self
+
     def execute(self):
         if self.table_name == "profiles":
             return SimpleNamespace(data=[self.profile] if self.profile else [])
@@ -52,13 +56,21 @@ class FakeSupabase:
         self.profile = profile
         self.invalid_token = invalid_token
         self.active_batch = active_batch
-        self.auth = SimpleNamespace(get_user=self.get_user)
+        self.auth = SimpleNamespace(
+            get_user=self.get_user,
+            admin=SimpleNamespace(create_user=self.admin_create_user),
+        )
 
     def get_user(self, token: str):
         assert token == "synthetic-token"
         if self.invalid_token:
             raise InvalidTokenError()
         return SimpleNamespace(user=SimpleNamespace(id="synthetic-user-id"))
+
+    def admin_create_user(self, payload: dict):
+        if payload.get("email") == "existing@itpln.ac.id":
+            raise Exception("User already registered")
+        return SimpleNamespace(user=SimpleNamespace(id="new-registered-uuid"))
 
     def table(self, table_name: str):
         return Query(table_name, self.profile, self.active_batch)
@@ -69,11 +81,13 @@ def use_fake_supabase(monkeypatch):
     def set_client(profile=None, invalid_token=False, active_batch=None):
         fake_client = FakeSupabase(profile, invalid_token, active_batch)
         monkeypatch.setattr(auth_module, "get_supabase", lambda: fake_client)
-        from app.api.v1.endpoints import certiport, sitasi
+        from app.api.v1.endpoints import auth as auth_endpoint, certiport, sitasi
 
+        monkeypatch.setattr(auth_endpoint, "get_supabase", lambda: fake_client)
         monkeypatch.setattr(sitasi, "get_supabase", lambda: fake_client)
         monkeypatch.setattr(certiport, "get_supabase", lambda: fake_client)
     return set_client
+
 
 
 @pytest.mark.parametrize(
@@ -149,4 +163,60 @@ def test_active_staff_receives_only_safe_active_batch_metadata(use_fake_supabase
     assert response.status_code == 200
     assert response.json()["data"]["imported_rows"] == 4
     assert "file_name" not in response.json()["data"]
+
+
+def test_register_staff_success(use_fake_supabase):
+    use_fake_supabase()
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "baru@itpln.ac.id",
+            "password": "password123",
+            "display_name": "Petugas Baru",
+        },
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["email"] == "baru@itpln.ac.id"
+    assert body["data"]["display_name"] == "Petugas Baru"
+    assert body["data"]["role"] == "staff"
+
+
+def test_register_staff_duplicate_email_is_400(use_fake_supabase):
+    use_fake_supabase()
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "existing@itpln.ac.id",
+            "password": "password123",
+            "display_name": "Petugas Duplikat",
+        },
+    )
+    assert response.status_code == 400
+    assert "terdaftar" in response.json()["detail"].lower()
+
+
+def test_register_staff_invalid_email_is_422():
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "bukan-email",
+            "password": "password123",
+            "display_name": "Petugas Salah",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_register_staff_short_password_is_422():
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": "tes@itpln.ac.id",
+            "password": "123",
+            "display_name": "Petugas Pendek",
+        },
+    )
+    assert response.status_code == 422
 
