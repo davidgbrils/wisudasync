@@ -615,3 +615,45 @@ Dokumen ini menjadi checkpoint singkat antarsesi. Perbarui setelah setiap peruba
 - **Tes terakhir:** `venv/Scripts/python.exe -m pytest tests -q` — 158 PASS; `npm run typecheck` — PASS; `npm run build` — PASS.
 - **Blocker:** Tidak ada blocker teknis. Pemilik project dapat langsung menyalin isi `database/UPDATE_SIMPLIFY_ADMIN_ONLY.sql` ke SQL Editor Supabase.
 - **Berikutnya:** Jalankan skrip SQL di dashboard Supabase jika database aktif ingin diselaraskan dengan schema baru.
+
+## 2026-10-23 — Skema ringkas & auto-isi kolom Wisuda (LULUS saja)
+
+- **Status:** SELESAI (kode + test + generator lokal). UAT browser/Supabase runtime belum.
+- **Tahap:** Menyesuaikan sistem dengan `data_sitasi.xlsx` dan `data_certiport.xlsx` yang kini hanya memuat kolom berguna, lalu mengisi `data_wisuda` hanya untuk status LULUS.
+- **Perubahan:**
+  - `backend/app/services/import_service.py`: parser skema ringkas + fallback Certiport lama.
+  - `backend/app/services/matching_service.py`: NIM exact, kategori MOS/MCF, exact name Certiport, helper isian.
+  - `backend/app/services/sync_service.py`: ekspor final aktif, hanya VALID yang diisi.
+  - `backend/scripts/generate_validation_workbook.py`: generator baru `hasil_wisuda_terisi.xlsx`.
+  - `frontend/.../master-data-page.tsx`, `sinkronisasi/[id]/page.tsx`, `lib/api.ts`: kolom & ekspor disesuaikan.
+  - Dokumen: `05`, `06`, `08`, `14`, `20`, `23`, `24`.
+- **Tes terakhir:** `venv/Scripts/python.exe -m pytest tests -q` — 165 PASS. Generator: total 424, MOS lulus 67, MCF lulus 38, tanpa isian 344.
+- **Blocker:** UAT visual browser dan runtime Supabase development berizin belum dijalankan. `npm run typecheck` — PASS; `npm run build` — PASS (10 rute).
+- **Berikutnya:** UAT browser dan impor batch asli pada environment berizin.
+
+## 2026-10-23 — Perbaikan Bug Perubahan Status Hasil pada Review Manual Detail
+
+- **Status:** SELESAI
+- **Tahap:** Mengatasi bug sinkronisasi status hasil (`validation_status`, `mos_status`, `mcf_status`, `sync_evidence`, serta render tabel dan modal) saat petugas melakukan review manual pada detail mahasiswa.
+- **Perubahan:**
+  - `backend/app/services/sync_service.py` (`submit_review`): Menyelaraskan status `mos_status`, `mcf_status`, `mos_programs`, `mcf_programs`, serta `evidence_status` pada `sync_evidence`.
+  - `backend/app/api/v1/endpoints/sync.py`: Mendukung opsi `target_program` pada schema dan endpoint review.
+  - `backend/tests/test_review.py`: Menambahkan tes unit untuk verifikasi pembaruan status MOS/MCF dan evidence (14 PASS).
+  - `frontend/lib/api.ts`: Mengirimkan parameter `targetProgram` saat simpan review.
+  - `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`:
+    - Memperbaiki `openDetailModal` agar status default keputusan review diselaraskan dengan status mahasiswa.
+    - Menambahkan pemilih program sertifikasi yang ditargetkan untuk prodi dengan kewajiban MCF.
+    - Memperbaiki `handleReviewSubmit` agar langsung memperbarui seluruh properti baris tabel di latar belakang (`mos_status`, `mcf_status`, `validation_status`, `needs_review`) dan modal secara reaktif tanpa perlu me-refresh halaman.
+- **Tes terakhir:** `pytest tests -q` — 167 PASS; `npm run typecheck` — PASS; `npm run build` — PASS.
+- **Blocker:** Tidak ada blocker teknis.
+- **Berikutnya:** Uji coba visual alur konfirmasi dan penolakan manual pada browser.
+
+
+## 2026-10-23 — Perbaikan identitas Certiport (false positive nama parsial)
+
+- **Status:** SELESAI (kode + unit test + verifikasi kasus nyata). UAT browser belum.
+- **Tahap:** Memisahkan pencocokan identitas dari validasi sertifikasi. Kandidat fuzzy tidak lagi menjadi evidence/exam/skor milik mahasiswa.
+- **Perubahan:** `matching_service.py` (exact token identity, token-coverage fuzzy score, konflik NIM, R15/R16, audit kandidat), `import_service.py` (validasi nilai wajib kosong), `sync_service.py` (nama file audit + `name_match_type`), generator lokal, test.
+- **Tes terakhir:** `venv/Scripts/python.exe -m pytest tests -q` — 177 PASS. Verifikasi kasus NIM 202310129: `PERLU_VERIFIKASI`, `mos_status=DATA_TIDAK_DITEMUKAN`, `exams=[]`, kandidat `Muhammad Akbar` skor 67.
+- **Blocker:** UAT visual modal review dan runtime Supabase development berizin belum dijalankan.
+- **Berikutnya:** UAT modal review untuk memastikan kandidat tidak tampil sebagai skor mahasiswa; impor batch asli di environment berizin.

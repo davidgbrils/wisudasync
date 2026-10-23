@@ -19,7 +19,8 @@ Gunakan **data sintetis tanpa NIM/nama mahasiswa nyata** untuk unit dan CI. File
 | TC-AUTH-02 | FR-002 | User login tetapi tidak terdaftar sebagai petugas | 403 |
 | TC-IMP-01 | FR-003 | XLSX SITASI semua header | Batch selesai, jumlah sesuai, source_row benar |
 | TC-IMP-02 | FR-004 | XLSX Certiport semua header | Batch selesai, nama/result dinormalisasi |
-| TC-IMP-03 | FR-005 | Header `Sub Program` hilang | Ditolak sebelum menjadi aktif |
+| TC-IMP-03 | FR-005 | Header wajib `Nilai` hilang | Ditolak sebelum menjadi aktif |
+| TC-IMP-04 | FR-005 | Nama/Sertifikasi kosong pada baris data | Ditolak dengan nomor baris yang jelas |
 | TC-NORM-01 | FR-006 | `". NAMA CONTOH "` | Nama asli tetap; normalized `NAMA CONTOH` |
 | TC-NORM-02 | FR-006 | NIM string `001234` | Nol awal tetap |
 | TC-TRACE-01 | FR-007 | Source row ke-2 | `source_row=2` dalam import |
@@ -31,8 +32,11 @@ Gunakan **data sintetis tanpa NIM/nama mahasiswa nyata** untuk unit dan CI. File
 | TC-MAT-01 | FR-011 | Exact NIM SITASI ditemukan | Semua baris SITASI NIM terambil |
 | TC-MAT-02 | FR-012 | Fail, Fail, Lulus untuk ujian sama | Bukti pernah lulus, semua attempt tetap terlacak |
 | TC-MAT-03 | FR-013 | Nama singkatan, fuzzy tinggi | **PERLU_VERIFIKASI**, bukan VALID |
-| TC-MAT-04 | FR-014 | SITASI MOS Word lulus; Certiport MOS Excel pass | **Tidak** memvalidasi Word memakai Excel |
-| TC-MAT-05 | FR-014 | Dua kandidat Certiport nama identik | Ambigu → review |
+| TC-MAT-04 | FR-014 | SITASI MOS lulus; Certiport MCF pass | MOS valid; MCF tidak dihitung sebagai MOS |
+| TC-MAT-05 | FR-014 | Nama persis + kandidat nama mirip di Certiport | Nama persis dipakai; kandidat mirip tidak mengisi |
+| TC-MAT-06 | FR-014 | Nama parsial (2 dari 3 token) + Certiport PASS | `PERLU_VERIFIKASI`; kandidat bukan evidence/skor; skor < 100 |
+| TC-MAT-07 | FR-014 | Nama sama tetapi NIM Certiport berbeda | `PERLU_VERIFIKASI` (`R16_NIM_CONFLICT`); tidak mengisi |
+| TC-MAT-08 | FR-014 | Urutan nama/gelar berbeda, seluruh token sama | Identitas exact; bukan fuzzy |
 | TC-VAL-01 | FR-015 | SITASI LULUS, Certiport FAIL ujian cocok | Konflik → review |
 | TC-VAL-02 | FR-015 | NIM tidak ada di SITASI | `DATA_TIDAK_DITEMUKAN` |
 | TC-VAL-03 | FR-015 | Certiport `INCO` | Tidak otomatis VALID |
@@ -40,7 +44,7 @@ Gunakan **data sintetis tanpa NIM/nama mahasiswa nyata** untuk unit dan CI. File
 | TC-REVIEW-02 | FR-016 | Reviewer memaksa FAIL menjadi PASS | Ditolak; bukti sumber tidak dimanipulasi |
 | TC-RES-01 | FR-017 | Filter status review | Jumlah dan isi konsisten |
 | TC-EXP-01 | FR-018 | Ekspor setelah review | Baris/urutan/kolom non-target tetap |
-| TC-EXP-02 | FR-018 | Mapping target belum disetujui | Ekspor final dibatasi/ditandai sesuai kebijakan |
+| TC-EXP-02 | FR-018 | Ekspor final dengan campuran status | Hanya LULUS terisi; status lain kosong |
 | TC-TRACE-02 | FR-019 | Master aktif berubah sesudah sync | Detail sesi tetap menunjukkan ID batch yang digunakan |
 | TC-HIST-01 | FR-020 | Dua sesi berbeda | Riwayat terpisah dan dapat dibuka |
 

@@ -551,3 +551,46 @@ Penanggung jawab:
 - Bukti Pengujian:
   - Backend: `venv/Scripts/python.exe -m pytest tests -q` — 158 PASS.
   - Frontend: `npm run typecheck` — PASS; `npm run build` — PASS.
+
+## 2026-10-23 — Skema ringkas SITASI/Certiport + auto-isi Wisuda LULUS
+
+- **Keputusan bisnis:** pemilik project menyetujui ADR-003/006/010/011. Hanya status LULUS yang mengisi kolom; format `MOS (Lulus)` / `MCF (Lulus)`; Title `MOS`, `MCF`, atau `MOS, MCF`; MCF hanya prodi 31/32; berkas keluaran baru.
+- **Perubahan kode:**
+  - `backend/app/services/import_service.py`: header wajib SITASI menjadi `NIM, Nama, Sertifikasi, Nilai, Status`; Certiport `Nama, Sertifikasi, Nilai, Status`; fallback skema lama Certiport; pemetaan `LULUS`→`PASS` dan `GAGAL`→`FAIL`; `program_name` diturunkan dari kategori.
+  - `backend/app/services/matching_service.py`: NIM exact sebagai identitas SITASI; nama hanya peringatan; exact name Certiport menang atas kandidat fuzzy; cocok ujian per kategori saat sub-program kosong; helper `build_wisuda_fill_values`; kunci record Certiport aman untuk mode tanpa id database.
+  - `backend/app/services/sync_service.py`: ekspor final aktif dan hanya mengisi status VALID; draft tetap berlabel; workbook delapan kolom Wisuda.
+  - `backend/scripts/generate_validation_workbook.py`: ditulis ulang; memakai parser & mesin resmi; menghasilkan `hasil_wisuda_terisi.xlsx` tanpa menimpa `data_wisuda.xlsx`.
+  - `frontend/components/master-data-page.tsx`, `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`, `frontend/lib/api.ts`: kolom master baru, tombol ekspor final aktif, Title memakai label MOS/MCF.
+- **Tes:** `pytest tests -q` — 165 PASS; generator lokal dijalankan pada data asli: MOS lulus 67, MCF lulus 38, 80 baris terisi.
+
+## 2026-10-23 — Perbaikan Perubahan Status Hasil Review Manual pada Modal Detail
+
+- **Masalah:** Saat tombol Detail ditekan dan petugas menyimpan keputusan review manual (`KONFIRMASI_COCOK` / `TIDAK_COCOK`):
+  1. `mos_status` dan `mcf_status` tidak diperbarui di backend (hanya `validation_status` yang di-update).
+  2. Sub-ujian `sync_evidence` tetap berstatus `PERLU_VERIFIKASI`.
+  3. Tabel utama di latar belakang modal tetap menampilkan badge kuning `PERLU VERIFIKASI` dan Title Microsoft tetap kosong (`—`).
+  4. Ekspor Excel final tidak mengisi kolom sertifikasi untuk mahasiswa yang telah dikonfirmasi sah.
+- **Perbaikan:**
+  - `backend/app/services/sync_service.py` (`submit_review`): Memperbarui `validation_status`, `mos_status`, `mcf_status`, `mos_programs`, `mcf_programs`, serta `evidence_status` pada `sync_evidence`. Menambahkan parameter opsional `target_program` (`ALL`, `MOS`, `MCF`).
+  - `backend/app/api/v1/endpoints/sync.py`: Menambahkan field `target_program` pada schema `ReviewDecisionRequest` dan meneruskannya ke `submit_review`.
+  - `backend/tests/test_review.py`: Menambahkan tes unit untuk transisi status MOS/MCF dan pembaruan `sync_evidence` (14 unit test lulus).
+  - `frontend/lib/api.ts`: Memperbarui `submitReviewResult` untuk mendukung pengiriman `targetProgram`.
+  - `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`:
+    - Memperbarui `openDetailModal` agar secara cerdas menentukan pilihan default review berdasarkan kondisi terkini mahasiswa.
+    - Menambahkan pemilih `targetProgram` untuk prodi yang mewajibkan MCF.
+    - Memperbarui `handleReviewSubmit` agar langsung memperbarui seluruh field baris tabel (`mos_status`, `mcf_status`, `validation_status`, `needs_review`) dan modal secara sinkron tanpa reload.
+- **Pengujian:**
+  - Backend: `pytest tests -q` — 167 PASS.
+  - Frontend: `npm run typecheck` — PASS (0 errors); `npm run build` — PASS (0 errors).
+
+
+## 2026-10-23 — Perbaikan false positive identitas Certiport
+
+- **Masalah:** `MUHAMMAD ALFARISY AKBAR` (NIM 202310129) menampilkan `MUHAMMAD AKBAR` sebagai pemilik skor MOS/MCF. Kandidat fuzzy dipakai sebagai evidence dan exam.
+- **Perbaikan:**
+  - `backend/app/services/matching_service.py`: identitas Certiport hanya exact seluruh token (urutan/gelar boleh beda); kandidat parsial/fuzzy tidak dipakai sebagai evidence/skor; skor fuzzy memakai cakupan token (`partial_name_candidate`, contoh 67); deteksi konflik NIM; kode alasan `R15_CANDIDATE_ONLY` dan `R16_NIM_CONFLICT`; audit kandidat berisi nama asli, normalisasi, skor, file, baris, status.
+  - `backend/app/services/import_service.py`: tolak NIM/Nama/Sertifikasi kosong pada SITASI dan Nama/Sertifikasi kosong pada Certiport.
+  - `backend/app/services/sync_service.py`: kirim nama file batch Certiport untuk audit; `name_match_type` menandai `CERTIPORT_EXACT`, `CERTIPORT_CANDIDATE_ONLY`, atau `TIDAK_ADA_IDENTITAS`.
+  - `backend/scripts/generate_validation_workbook.py`: meneruskan nama file Certiport.
+  - Test: `test_validation_engine.py`, `test_certiport_matching.py`, `test_import_service.py`.
+- **Bukti:** `pytest tests -q` — 177 PASS. Kasus nyata NIM 202310129: `PERLU_VERIFIKASI`, `mos_status=DATA_TIDAK_DITEMUKAN`, tanpa exam/evidence, kandidat `Muhammad Akbar` skor 67.

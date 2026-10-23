@@ -1,7 +1,7 @@
 # 22 — Formulir UAT (User Acceptance Test) & Serah Terima
 
 > ## STATUS: **BELUM SIAP PRODUCTION**
-> Formulir ini **belum dijalankan** pada lingkungan berizin dan **belum ditandatangani** petugas ITCC. Sistem **tidak boleh di-deploy** ke production, dan ekspor final tetap terkunci sampai seluruh kasus UAT di bawah berstatus `PASS` serta lembar pengesahan (Bagian 12) ditandatangani.
+> Formulir ini **belum dijalankan** pada lingkungan berizin dan **belum ditandatangani** petugas ITCC. Sistem **tidak boleh di-deploy** ke production sampai seluruh kasus UAT di bawah berstatus `PASS` serta lembar pengesahan (Bagian 12) ditandatangani. Ekspor final aktif sejak 2026-10-23 dan hanya mengisi status LULUS.
 
 Dokumen ini adalah lembar kerja UAT petugas ITCC untuk ITCC Wisuda Sync, mengikuti `docs/10_TEST_PLAN.md`, `docs/15_ACCEPTANCE.md`, `docs/11_SECURITY_PRIVACY.md`, dan hasil pengujian teknis Tahap 15 (`docs/21_TEST_RESULTS.md`). UAT menguji skenario nyata petugas di browser, berbeda dari unit/integration test yang sudah dijalankan.
 
@@ -104,10 +104,10 @@ Kolom wajib: **Kasus · Expected · Actual · Bukti Screenshot (disensor) · Kep
 
 | ID | Kasus (Langkah) | Expected | Actual | Bukti (disensor) | Keputusan Petugas | Tanggal |
 |---|---|---|---|---|---|---|
-| UAT-EXP-01 | Unduh pratinjau "Excel (DRAFT)" | Berkas `.xlsx` berlabel `[DRAFT]`; susunan sheet, kolom & formula non-target dipertahankan; ada sheet audit | _Belum dijalankan_ | — | — | — |
-| UAT-EXP-02 | Coba ekspor final (tombol terkunci / `mode=final`) | Ditolak `403`; tombol disabled dengan penjelasan mengarah ke `docs/20_OUTPUT_MAPPING_APPROVAL.md` | _Belum dijalankan_ | — | — | — |
-| UAT-EXP-03 | Buka berkas DRAFT di Microsoft Excel | Terbuka tanpa error; jumlah/urutan baris sesuai input | _Belum dijalankan_ | — | — | — |
-| UAT-EXP-04 | Periksa sel target yang sudah terisi sebelumnya | Tidak ditimpa tanpa persetujuan; selisih tampil di pratinjau (ADR-010) | _Belum dijalankan_ | — | — | — |
+| UAT-EXP-01 | Unduh Excel Final | Berkas `.xlsx` delapan kolom Wisuda; kolom target terisi hanya untuk LULUS | _Belum dijalankan_ | — | — | — |
+| UAT-EXP-02 | Periksa baris tidak lulus | Kolom `Sertifikasi MOS`, `MCF`, dan `Title Microsoft` kosong | _Belum dijalankan_ | — | — | — |
+| UAT-EXP-03 | Unduh pratinjau DRAFT | Berkas berlabel `[DRAFT]`; susunan kolom dipertahankan | _Belum dijalankan_ | — | — | — |
+| UAT-EXP-04 | Periksa sel target yang sudah terisi sebelumnya | Berkas keluaran baru; `data_wisuda.xlsx` asli tidak ditimpa (ADR-010) | _Belum dijalankan_ | — | — | — |
 
 ### G. Sesi Lama & Riwayat
 

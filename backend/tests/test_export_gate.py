@@ -16,10 +16,7 @@ from app.api.v1.endpoints import sync as sync_endpoint
 from app.core.auth import StaffPrincipal, require_staff
 from app.main import app
 from app.services.matching_service import PERLU_VERIFIKASI, VALID
-from app.services.sync_service import (
-    ExportBlockedByPolicyError,
-    generate_sync_export_workbook,
-)
+from app.services.sync_service import generate_sync_export_workbook
 from tests.test_sync_service import MockSupabase
 
 
@@ -73,12 +70,34 @@ def mock_supabase_for_export():
 # Unit tests for generate_sync_export_workbook
 # ---------------------------------------------------------------------------
 
-def test_export_final_is_blocked_by_policy(mock_supabase_for_export):
+def test_export_final_fills_only_passed_rows(mock_supabase_for_export):
     sb, session_id = mock_supabase_for_export
-    with pytest.raises(ExportBlockedByPolicyError) as exc:
-        generate_sync_export_workbook(sb, session_id, mode="final")
-    assert "ADR-003" in str(exc.value)
-    assert "docs/20_OUTPUT_MAPPING_APPROVAL.md" in str(exc.value)
+    buf = generate_sync_export_workbook(sb, session_id, mode="final")
+
+    wb = openpyxl.load_workbook(buf)
+    assert "Wisuda" in wb.sheetnames
+    assert "Ringkasan" in wb.sheetnames
+
+    ws = wb["Wisuda"]
+    rows = list(ws.iter_rows(values_only=True))
+    assert len(rows) == 3  # Header + 2 data rows
+
+    headers = rows[0]
+    assert headers[5:8] == ("Sertifikasi MOS", "Sertifikasi MCF", "Title Microsoft")
+
+    # Baris lulus: terisi.
+    row1 = rows[1]
+    assert row1[3] == "209900001"
+    assert row1[5] == "MOS (Lulus)"
+    assert row1[6] in ("", None)
+    assert row1[7] == "MOS"
+
+    # Baris tidak lulus: semua kolom target kosong.
+    row2 = rows[2]
+    assert row2[3] == "209900002"
+    assert row2[5] is None
+    assert row2[6] is None
+    assert row2[7] is None
 
 
 def test_export_draft_generates_valid_workbook_with_draft_labels(mock_supabase_for_export):
@@ -86,34 +105,28 @@ def test_export_draft_generates_valid_workbook_with_draft_labels(mock_supabase_f
     buf = generate_sync_export_workbook(sb, session_id, mode="draft")
 
     wb = openpyxl.load_workbook(buf)
-    sheet_names = wb.sheetnames
-    assert "Wisuda (DRAFT Preview)" in sheet_names
-    assert "Ringkasan & Gate ADR" in sheet_names
+    assert "Wisuda (DRAFT)" in wb.sheetnames
+    assert "Ringkasan" in wb.sheetnames
 
-    ws = wb["Wisuda (DRAFT Preview)"]
+    ws = wb["Wisuda (DRAFT)"]
     rows = list(ws.iter_rows(values_only=True))
-    assert len(rows) == 3  # Header + 2 data rows
+    assert len(rows) == 3
 
     headers = rows[0]
-    assert "Sertifikasi MOS [DRAFT]" in headers
-    assert "Sertifikasi MCF [DRAFT]" in headers
+    assert headers[5:8] == ("Sertifikasi MOS", "Sertifikasi MCF", "Title Microsoft")
 
-    # Row 1 (Valid)
+    # Baris lulus: berlabel DRAFT.
     row1 = rows[1]
-    assert row1[3] == "209900001"
-    assert row1[4] == "MAHASISWA SATU"
-    assert "[DRAFT] MOS (Lulus)" in row1[5]
+    assert row1[5] == "[DRAFT] MOS (Lulus)"
+    assert row1[7] == "[DRAFT] MOS"
 
-    # Row 2 (Perlu verifikasi)
+    # Baris tidak lulus: kosong.
     row2 = rows[2]
-    assert row2[3] == "209900002"
-    assert "[DRAFT] PERLU_VERIFIKASI" in row2[5]
+    assert row2[5] is None
 
-    # Check Sheet 2 (Gate audit)
-    ws_audit = wb["Ringkasan & Gate ADR"]
+    ws_audit = wb["Ringkasan"]
     audit_rows = list(ws_audit.iter_rows(values_only=True))
-    assert any("DRAFT - PRATINJAU BELUM DISAHKAN" in str(r) for r in audit_rows)
-    assert any("ADR-003" in str(r) or "docs/20_OUTPUT_MAPPING_APPROVAL.md" in str(r) for r in audit_rows)
+    assert any("DRAFT - PRATINJAU" in str(r) for r in audit_rows)
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +141,7 @@ def test_api_export_accessible_without_auth(monkeypatch, mock_supabase_for_expor
     assert resp.status_code == 200
 
 
-def test_api_export_final_returns_403_forbidden(monkeypatch, mock_supabase_for_export):
+def test_api_export_final_returns_200_xlsx_stream(monkeypatch, mock_supabase_for_export):
     sb, session_id = mock_supabase_for_export
     monkeypatch.setattr(sync_endpoint, "get_supabase", lambda: sb)
 
@@ -140,9 +153,13 @@ def test_api_export_final_returns_403_forbidden(monkeypatch, mock_supabase_for_e
     )
     try:
         resp = client.get(f"/api/v1/sync/{session_id}/export?mode=final")
-        assert resp.status_code == 403
-        assert "ADR-003" in resp.json()["detail"]
-        assert "docs/20_OUTPUT_MAPPING_APPROVAL.md" in resp.json()["detail"]
+        assert resp.status_code == 200
+        assert "spreadsheetml.sheet" in resp.headers["content-type"]
+        assert "attachment" in resp.headers["content-disposition"]
+        assert "final" in resp.headers["content-disposition"].lower()
+
+        wb = openpyxl.load_workbook(BytesIO(resp.content))
+        assert "Wisuda" in wb.sheetnames
     finally:
         app.dependency_overrides.pop(require_staff, None)
 
@@ -166,7 +183,7 @@ def test_api_export_draft_returns_200_xlsx_stream(monkeypatch, mock_supabase_for
 
         # Check content is readable as openpyxl workbook
         wb = openpyxl.load_workbook(BytesIO(resp.content))
-        assert "Wisuda (DRAFT Preview)" in wb.sheetnames
+        assert "Wisuda (DRAFT)" in wb.sheetnames
     finally:
         app.dependency_overrides.pop(require_staff, None)
 

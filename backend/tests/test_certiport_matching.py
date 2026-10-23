@@ -56,6 +56,7 @@ def certiport_row(
     id: int = 100,
     source_row: int = 2,
     full_name: str = "MAHASISWA CONTOH",
+    nim: str | None = None,
     program_name: str = "Microsoft Office Specialist",
     certification_name: str = "Word 2019",
     score: int | None = 700,
@@ -66,6 +67,7 @@ def certiport_row(
         "source_row": source_row,
         "full_name": full_name,
         "full_name_normalized": normalize_name(full_name),
+        "nim": nim,
         "program_name": program_name,
         "certification_name": certification_name,
         "score": score,
@@ -270,7 +272,7 @@ def test_approved_alias_results_in_valid():
 # Same name, multiple persons (ambiguity)
 # ---------------------------------------------------------------------------
 
-def test_same_name_multiple_unique_names_perlu_verifikasi():
+def test_exact_name_wins_over_fuzzy_candidates():
     wisuda = [wisuda_row(nama="ANDI BUDIMAN")]
     sitasi = [sitasi_row(nim="209900001", nama="ANDI BUDIMAN", sertifikasi="MOS", sub_program="Word", status="LULUS")]
     certiport = [
@@ -279,8 +281,9 @@ def test_same_name_multiple_unique_names_perlu_verifikasi():
     ]
     results = _run_pipeline(wisuda, sitasi, certiport)
     r = results[0]
-    assert r["certiport_match"]["status"] == PERLU_VERIFIKASI
-    assert "nama" in r["certiport_match"]["reason"].lower() or "salah orang" in r["certiport_match"]["reason"].lower()
+    # Aturan 2026-10-23: exact normalized name selalu menang atas kandidat fuzzy.
+    assert r["certiport_match"]["status"] == "MATCHED"
+    assert r["overall_status"] == VALID
 
 
 # ---------------------------------------------------------------------------

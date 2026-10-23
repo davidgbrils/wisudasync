@@ -27,12 +27,12 @@ Komponen kode utama:
 
 ### 2.1 Format yang diterima
 
-| Sumber | Sheet wajib | Header wajib |
-|---|---|---|
-| SITASI | `Master_Data` | `NIM`, `Nama`, `Fakultas`, `Kode NIM`, `Program Studi`, `Angkatan`, `Sertifikasi`, `Sub Program`, `Nilai`, `Status` |
-| Certiport | `Results (264) Plus` | `First Name`, `Last Name`, `Full Name`, `Program Name`, `Certification Name`, `Score`, `Result` |
+| Sumber | Sheet wajib | Header wajib | Header opsional |
+|---|---|---|---|
+| SITASI | `Master_Data` | `NIM`, `Nama`, `Sertifikasi`, `Nilai`, `Status` | `Kode NIM`, `Program Studi`, `Fakultas`, `Angkatan`, `Sub Program` |
+| Certiport | `Results (264) Plus` | `Nama`, `Sertifikasi`, `Nilai`, `Status` | — (skema lama masih dibaca sebagai fallback) |
 
-Aturan aman: file `.xlsx` saja (bukan `.xlsm`), maksimum 10 MiB (default, dapat diatur `MAX_UPLOAD_SIZE_BYTES`), header dicari pada 10 baris awal, baris berformula pada kolom wajib ditolak, header ganda ditolak. Pengecualian: kolom `Full Name` Certiport boleh berformula CONCATENATE; nilainya diambil dari cache atau diturunkan dari `First Name` + `Last Name`.
+Aturan aman: file `.xlsx` saja (bukan `.xlsm`), maksimum 10 MiB (default, dapat diatur `MAX_UPLOAD_SIZE_BYTES`), header dicari pada 10 baris awal, baris berformula pada kolom wajib ditolak, header ganda ditolak. Untuk skema lama Certiport, kolom `Full Name` boleh berformula CONCATENATE; nilainya diambil dari cache atau diturunkan dari `First Name` + `Last Name`.
 
 ### 2.2 Langkah import
 
@@ -56,7 +56,17 @@ Index unik parsial `data_imports_one_active_per_type_idx` (pada `data_type` wher
 - Jika jumlah baris tak sesuai (`total_rows <> imported_rows`), RPC menolak aktivasi.
 - Untuk mengulang: cukup unggah ulang berkas yang sudah diperbaiki; ini membuat batch/sesi baru tanpa merusak riwayat lama.
 
-### 2.5 Pemeriksaan database (read-only)
+### 2.5 Pemrosesan lokal tanpa aplikasi web
+
+Dari root repository:
+
+```powershell
+.\backend\venv\Scripts\python.exe backend\scripts\generate_validation_workbook.py
+```
+
+Script membaca `data_wisuda.xlsx`, `data_sitasi.xlsx`, dan `data_certiport.xlsx` memakai parser resmi, lalu menulis `hasil_wisuda_terisi.xlsx` (layout asli dipertahankan + sheet `Ringkasan`). Hanya status LULUS yang diisi; MCF hanya untuk prodi 31/32.
+
+### 2.6 Pemeriksaan database (read-only)
 
 Jalankan `database/checks/phase4_foundation_check.sql` untuk memverifikasi tabel, kolom, constraint, index, status RLS (harus tanpa policy browser), grants (hanya `service_role`), dan duplikasi batch aktif. Skrip ini **tidak** mengubah data.
 
@@ -103,7 +113,7 @@ Jalankan `database/checks/phase4_foundation_check.sql` untuk memverifikasi tabel
 - Endpoint data (SITASI/Certiport/Sync) wajib Bearer token **dan** profil `is_active` + role `staff`/`admin`. `/health` publik.
 - RLS deny-by-default; tidak ada policy `anon`/`authenticated`; akses hanya `service_role` (backend).
 - `review_audit` append-only: siapa, kapan, keputusan, catatan, status lama→baru.
-- Ekspor final terkunci (`403`) sampai `docs/20_OUTPUT_MAPPING_APPROVAL.md` disahkan.
+- Ekspor final aktif sejak 2026-10-23; hanya status `VALID`/LULUS yang mengisi kolom. Lihat `docs/20_OUTPUT_MAPPING_APPROVAL.md`.
 
 ---
 
@@ -151,11 +161,11 @@ Supabase (PostgreSQL + Auth) — versi mengikuti project development yang disetu
 | L1 | Migrasi SQL belum pernah dieksekusi di PostgreSQL/Supabase | Blocker | Perilaku DB hanya terverifikasi statis/unit |
 | L2 | Tidak ada lingkungan Supabase development berizin | Blocker | Login/runtime, UAT browser, RLS belum diuji |
 | L3 | Service-role key lama terekspos; rotasi belum dikonfirmasi | P0 | Risiko keamanan sampai dirotasi |
-| L4 | Pemetaan output (`Sertifikasi MOS/MCF`, `Title Microsoft`) belum disetujui | ADR-003/006 | Ekspor final diblokir |
-| L5 | Alias ujian masih `DRAFT` | ADR-005 | Semua alias → `PERLU_VERIFIKASI` |
+| L4 | Pemetaan output disetujui 2026-10-23 (`MOS (Lulus)`, `MCF (Lulus)`) | ADR-003/006 | Ekspor final aktif; sel non-LULUS kosong |
+| L5 | Skema sumber ringkas tidak memuat sub-program | ADR-005 | Kecocokan ujian memakai kategori MOS/MCF |
 | L6 | Kebijakan retensi/backup belum ditetapkan | ADR-007 | Larangan data asli di cloud |
 | L7 | Kebijakan reviewer belum disahkan | ADR-009 | `KONFIRMASI_COCOK` staf dibatasi |
-| L8 | Penanganan sel wisuda yang sudah terisi belum disahkan | ADR-010 | Larangan overwrite |
+| L8 | Sel wisuda terisi ditangani lewat berkas baru | ADR-010 | `data_wisuda.xlsx` asli tidak ditimpa |
 | L9 | Kriteria wajib sertifikasi per prodi belum ditetapkan | ADR-011 | Sistem tidak menyimpulkan kelulusan |
 | L10 | Performa runtime (waktu proses, batas jumlah baris) belum diukur | Belum diukur | Angka performa tidak diklaim |
 | L11 | Tabel `certification_aliases` belum dibuat | Rencana | Alias disimpan sebagai konstanta kode |

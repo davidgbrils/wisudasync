@@ -18,38 +18,32 @@ Nama contoh: `data_wisuda.xlsx` · Sheet: `Wisuda`.
 
 Jangan menghitung kolom A sebagai indeks database. Satu hasil internal harus tetap memetakan ke **baris input** (row number/source_row). Pertahankan kolom tambahan jika file baru memiliki kolom lain; validasi kebutuhan minimal per versi template.
 
-## 2. Excel SITASI
+## 2. Excel SITASI (skema ringkas 2026-10-23)
 Nama contoh: `data_sitasi.xlsx` · Sheet: `Master_Data`.
 
 | Header Excel | Kolom database Phase 4 | Kegunaan |
 |---|---|---|
-| `NIM` | `nim` | Join utama dengan wisuda |
-| `Nama` | `nama`, `nama_normalized` | Pemeriksaan nama dan jembatan ke Certiport |
-| `Fakultas` | `fakultas` | Metadata sumber |
-| `Kode NIM` | `kode_nim` | Metadata, tidak menggantikan NIM |
-| `Program Studi` | `program_studi` | Metadata |
-| `Angkatan` | `angkatan` | Informasi akademik tambahan |
-| `Sertifikasi` | `sertifikasi` | Kategori `MOS`, `MCF`, termasuk `MTCNA` di data master |
-| `Sub Program` | `sub_program` | Jenis ujian; gunakan mapping ke Certiport |
-| `Nilai` | `nilai` | Informasi pendukung; bukan satu-satunya dasar kelulusan |
+| `NIM` | `nim` | Join utama dengan wisuda (exact string) |
+| `Nama` | `nama`, `nama_normalized` | Pemeriksaan nama; **bukan** syarat pembatalan bila NIM sama |
+| `Kode NIM` | `kode_nim` | Metadata program studi |
+| `Program Studi` | `program_studi` | Metadata program studi |
+| `Sertifikasi` | `sertifikasi` | Kategori `MOS`, `MCF`; `MTCNA` disimpan tetapi tidak mengisi kolom Wisuda |
+| `Nilai` | `nilai` | Informasi pendukung, bukan dasar kelulusan |
 | `Status` | `status` | `LULUS`, `TIDAK LULUS`, `PENDING`, `GAGAL`, kosong/lainnya |
 
-Satu NIM dapat muncul **berulang**, karena banyak attempt/jenis ujian. **Tidak boleh ada unique constraint pada `nim` di `sitasi_data`**. Keunikan rekaman sumber lebih tepat menggunakan `import_id + source_row`.
+Kolom `Fakultas`, `Angkatan`, dan `Sub Program` tidak lagi wajib. Bila tidak ada, nilainya `null` di database. Satu NIM dapat muncul **berulang** (banyak sertifikasi/attempt). **Tidak boleh ada unique constraint pada `nim` di `sitasi_data`**; keunikan memakai `import_id + source_row`.
 
-## 3. Excel Certiport
+## 3. Excel Certiport (skema ringkas 2026-10-23)
 Nama contoh: `data_certiport.xlsx` · Sheet: `Results (264) Plus`.
 
 | Header Excel | Kolom database Phase 4 | Kegunaan |
 |---|---|---|
-| `First Name` | `first_name` | Nama depan |
-| `Last Name` | `last_name` | Nama belakang |
-| `Full Name` | `full_name`, `full_name_normalized` | Pencocokan identitas kandidat |
-| `Program Name` | `program_name` | Kategori MOS/MCF dengan label berbeda |
-| `Certification Name` | `certification_name` | Produk/ujian aktual |
-| `Score` | `score` | Bukti tambahan, **bukan** putusan menggantikan `Result` |
-| `Result` | `result` | `PASS`, `FAIL`, `INCO` atau nilai lain yang harus ditangani |
+| `Nama` | `full_name`, `full_name_normalized` | Identitas kandidat; satu-satunya kunci pencocokan |
+| `Sertifikasi` | `certification_name`, `program_name` | Kategori `MOS`/`MCF`; `program_name` diturunkan ke label lengkap |
+| `Nilai` | `score` | Bukti tambahan, **bukan** putusan |
+| `Status` | `result` | `LULUS`/`PASS` → `PASS`; `TIDAK LULUS`/`GAGAL`/`FAIL` → `FAIL` |
 
-**Tidak ada NIM di file Certiport contoh.** Exact match nama belum tentu mengidentifikasi orang secara unik; gunakan pengecekan duplikat kandidat dan program ujian.
+**Tidak ada NIM di file Certiport.** Identitas hanya dikonfirmasi bila **seluruh token nama sama** setelah normalisasi (urutan kata dan gelar akademik boleh berbeda). Kecocokan sebagian/fuzzy hanya menjadi kandidat saran: record-nya tidak dipakai sebagai bukti, tidak menghasilkan exam, dan tidak memberi skor kepada mahasiswa. Skema lama (`First Name`, `Last Name`, `Full Name`, `Program Name`, `Certification Name`, `Score`, `Result`) masih dapat dibaca sebagai fallback; jika record lama menyediakan NIM, NIM yang berbeda dari wisuda dianggap konflik identitas.
 
 ## 4. Pemetaan nama/status program awal
 | SITASI `Sertifikasi` | Certiport `Program Name` | Status mapping |

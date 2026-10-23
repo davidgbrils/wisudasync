@@ -316,3 +316,49 @@ def test_api_review_empty_note_returns_422(monkeypatch, mock_supabase_with_resul
         assert resp.status_code == 422
     finally:
         app.dependency_overrides.pop(require_staff, None)
+
+
+def test_submit_review_updates_mos_and_mcf_status(mock_supabase_with_result):
+    """KONFIRMASI_COCOK harus memperbarui mos_status, mcf_status, dan evidence_status menjadi VALID."""
+    sb, session_id, result_id = mock_supabase_with_result
+    # Tambahkan mcf_status dan program summary agar lengkap
+    sb.storage["sync_results"][0]["mcf_status"] = PERLU_VERIFIKASI
+    sb.storage["sync_results"][0]["kode_prodi"] = "31"  # TI (relevan MCF)
+    sb.storage["sync_results"][0]["mos_programs"] = {"status": PERLU_VERIFIKASI, "needs_review": True}
+    sb.storage["sync_results"][0]["mcf_programs"] = {"status": PERLU_VERIFIKASI, "needs_review": True}
+
+    res = submit_review(
+        sb, session_id, result_id,
+        decision="KONFIRMASI_COCOK",
+        note="Identitas sah tervalidasi",
+        user_id="admin-1",
+        user_name="Admin ITCC",
+        user_role="admin",
+    )
+    assert res["new_status"] == VALID
+    assert res["mos_status"] == VALID
+    assert res["mcf_status"] == VALID
+    assert sb.storage["sync_results"][0]["validation_status"] == VALID
+    assert sb.storage["sync_results"][0]["mos_status"] == VALID
+    assert sb.storage["sync_results"][0]["mcf_status"] == VALID
+    assert sb.storage["sync_results"][0]["mos_programs"]["status"] == VALID
+    assert sb.storage["sync_results"][0]["mcf_programs"]["status"] == VALID
+    assert sb.storage["sync_evidence"][0]["evidence_status"] == VALID
+
+
+def test_submit_review_tidak_cocok_updates_to_tidak_lulus(mock_supabase_with_result):
+    """TIDAK_COCOK harus memperbarui status menjadi TIDAK_LULUS."""
+    sb, session_id, result_id = mock_supabase_with_result
+    res = submit_review(
+        sb, session_id, result_id,
+        decision="TIDAK_COCOK",
+        note="Bukan mahasiswa bersangkutan",
+        user_id="staff-1",
+        user_name="Staff Uji",
+        user_role="staff",
+    )
+    assert res["new_status"] == TIDAK_LULUS
+    assert res["mos_status"] == TIDAK_LULUS
+    assert sb.storage["sync_results"][0]["validation_status"] == TIDAK_LULUS
+    assert sb.storage["sync_results"][0]["mos_status"] == TIDAK_LULUS
+    assert sb.storage["sync_evidence"][0]["evidence_status"] == TIDAK_LULUS

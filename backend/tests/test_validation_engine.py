@@ -6,6 +6,7 @@ from app.services.matching_service import (
     PERLU_VERIFIKASI,
     TIDAK_LULUS,
     VALID,
+    build_wisuda_fill_values,
     validate_wisuda_complete,
 )
 from app.services.normalization_service import normalize_name
@@ -53,6 +54,7 @@ def certiport_row(
     id: int = 100,
     source_row: int = 2,
     full_name: str = "MAHASISWA CONTOH",
+    nim: str | None = None,
     program_name: str = "Microsoft Office Specialist",
     certification_name: str = "Word",
     score: int | None = 700,
@@ -63,6 +65,7 @@ def certiport_row(
         "source_row": source_row,
         "full_name": full_name,
         "full_name_normalized": normalize_name(full_name),
+        "nim": nim,
         "program_name": program_name,
         "certification_name": certification_name,
         "score": score,
@@ -143,8 +146,8 @@ def test_dt_row5_sitasi_pending():
     assert "R07_PENDING" in r["reason_codes"]
 
 
-# Baris 6: Kandidat nama ganda => PERLU_VERIFIKASI
-def test_dt_row6_multiple_name_candidates():
+# Baris 6: exact name menang atas kandidat fuzzy lain
+def test_dt_row6_exact_name_wins_over_fuzzy_candidates():
     r = _validate(
         [wisuda_row(nama="ANDI BUDIMAN")],
         [sitasi_row(nim="209900001", nama="ANDI BUDIMAN", status="LULUS")],
@@ -153,9 +156,8 @@ def test_dt_row6_multiple_name_candidates():
             certiport_row(id=101, full_name="ANDI BUDIMAN S", result="Pass"),
         ],
     )[0]
-    assert r["validation_status"] == PERLU_VERIFIKASI
-    assert r["needs_review"] is True
-    assert any("nama ganda" in f.lower() or "Certiport" in f for f in r["review_flags"])
+    assert r["validation_status"] == VALID
+    assert r["certiport_match"]["status"] == "MATCHED"
 
 
 # Baris 7: SITASI MOS Word LULUS; Certiport beda ujian (Excel PASS) => SITASI cukup, VALID
@@ -316,14 +318,14 @@ def test_fuzzy_only_flags_review():
     assert any("fuzzy" in f.lower() or "mirip" in f.lower() for f in r["review_flags"])
 
 
-def test_name_mismatch_same_nim_without_certiport_perlu_verifikasi():
+def test_name_mismatch_same_nim_is_valid_but_flagged():
     r = _validate(
         [wisuda_row(nama="NAMA BEDA")],
         [sitasi_row(nim="209900001", nama="NAMA ASLI", status="LULUS")],
         [],
     )[0]
-    # NIM ada tapi nama beda → bukan "cocok SITASI", dan tidak ada di Certiport.
-    assert r["validation_status"] == PERLU_VERIFIKASI
+    # NIM exact adalah identitas utama; nama beda hanya menjadi peringatan review.
+    assert r["validation_status"] == VALID
     assert r["needs_review"] is True
 
 
@@ -338,15 +340,16 @@ def test_name_mismatch_same_nim_uses_certiport_when_name_matches():
     assert r["needs_review"] is True
 
 
-def test_similar_name_suggestions_in_review_flags():
+def test_name_order_variation_is_exact_identity():
+    # Seluruh token sama, hanya urutan berbeda -> identitas exact, bukan fuzzy.
     r = _validate(
         [wisuda_row(nim="999999999", nama="BUDI SANTOSO")],
         [sitasi_row(nim="209900001", nama="ORANG LAIN", status="LULUS")],
         [certiport_row(full_name="SANTOSO BUDI", certification_name="Word", result="Pass")],
     )[0]
-    assert r["validation_status"] == PERLU_VERIFIKASI
-    assert any("mirip" in f.lower() for f in r["review_flags"])
-    assert any("SANTOSO BUDI" in f for f in r["review_flags"])
+    assert r["validation_status"] == VALID
+    assert r["mos_status"] == VALID
+    assert r["certiport_match"]["status"] == "MATCHED"
 
 
 # ===================================================================
@@ -634,5 +637,222 @@ def test_detail_contains_sitasi_and_certiport_names_and_scores():
     assert d["certiport_name"] == "BUDI SANTOSO"
     assert d["certiport_score"] == 890
     assert d["certiport_status"] == "PASS"
+
+
+# ---------------------------------------------------------------------------
+# Skema ringkas 2026-10-23: tanpa sub-program, hanya kategori MOS/MCF.
+# ---------------------------------------------------------------------------
+
+
+def test_simplified_sitasi_nim_exact_fills_mos():
+    r = _validate(
+        [wisuda_row(nim="209900001", nama="MAHASISWA CONTOH")],
+        [sitasi_row(sub_program="", sertifikasi="MOS", status="LULUS")],
+        [],
+    )[0]
+
+    assert r["mos_status"] == VALID
+    fill = build_wisuda_fill_values(r["mos_status"], r["mcf_status"])
+    assert fill == {"mos": "MOS (Lulus)", "mcf": "", "title": "MOS"}
+
+
+def test_simplified_certiport_exact_name_fills_mos():
+    r = _validate(
+        [wisuda_row(nim="209900001", nama="MAHASISWA CONTOH")],
+        [],
+        [
+            certiport_row(
+                full_name="MAHASISWA CONTOH",
+                program_name="MICROSOFT OFFICE SPECIALIST",
+                certification_name="MOS",
+                result="PASS",
+            )
+        ],
+    )[0]
+
+    assert r["mos_status"] == VALID
+    assert build_wisuda_fill_values(r["mos_status"], r["mcf_status"])["mos"] == "MOS (Lulus)"
+
+
+def test_simplified_non_pass_leaves_fill_blank():
+    r = _validate(
+        [wisuda_row()],
+        [sitasi_row(sub_program="", sertifikasi="MOS", status="TIDAK LULUS")],
+        [],
+    )[0]
+
+    assert r["mos_status"] == TIDAK_LULUS
+    assert build_wisuda_fill_values(r["mos_status"], r["mcf_status"]) == {
+        "mos": "",
+        "mcf": "",
+        "title": "",
+    }
+
+
+def test_mcf_only_filled_for_relevant_prodi():
+    relevant = _validate(
+        [wisuda_row(nim="202331001", nama="MAHASISWA CONTOH")],
+        [sitasi_row(nim="202331001", sub_program="", sertifikasi="MCF", status="LULUS")],
+        [],
+    )[0]
+    other = _validate(
+        [wisuda_row(nim="202111001", nama="MAHASISWA CONTOH")],
+        [sitasi_row(nim="202111001", sub_program="", sertifikasi="MCF", status="LULUS")],
+        [],
+    )[0]
+
+    assert relevant["mcf_status"] == VALID
+    assert build_wisuda_fill_values(relevant["mos_status"], relevant["mcf_status"])["mcf"] == "MCF (Lulus)"
+    assert other["mcf_status"] is None
+    assert build_wisuda_fill_values(other["mos_status"], other["mcf_status"])["mcf"] == ""
+
+
+def test_fuzzy_name_only_does_not_fill():
+    r = _validate(
+        [wisuda_row(nim="209900001", nama="MAHASISWA CONTOH")],
+        [],
+        [certiport_row(full_name="MAHASISWA CONTOHH", certification_name="MOS", result="PASS")],
+    )[0]
+
+    # Fuzzy bukan exact: tidak boleh mengisi, apa pun status internalnya.
+    assert r["mos_status"] in (DATA_TIDAK_DITEMUKAN, PERLU_VERIFIKASI)
+    assert build_wisuda_fill_values(r["mos_status"], r["mcf_status"])["mos"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Regresi false positive: kandidat nama parsial bukan identitas mahasiswa.
+# ---------------------------------------------------------------------------
+
+
+def test_partial_name_candidate_not_used_as_identity_or_evidence():
+    r = _validate(
+        [wisuda_row(nim="202310129", nama="MUHAMMAD ALFARISY AKBAR", kode_prodi="10")],
+        [],
+        [
+            certiport_row(
+                id=672,
+                source_row=672,
+                full_name="MUHAMMAD AKBAR",
+                program_name="MICROSOFT OFFICE SPECIALIST",
+                certification_name="MOS",
+                score=975,
+                result="PASS",
+            )
+        ],
+    )[0]
+
+    assert r["validation_status"] == PERLU_VERIFIKASI
+    assert r["mos_status"] != VALID
+    assert r["exams"] == []
+    assert build_wisuda_fill_values(r["mos_status"], r["mcf_status"])["mos"] == ""
+    assert r["needs_review"] is True
+    assert any("MUHAMMAD AKBAR" in flag for flag in r["review_flags"])
+    assert any("fuzzy" in flag.lower() or "mirip" in flag.lower() for flag in r["review_flags"])
+
+
+def test_exact_name_with_matching_nim_is_confirmed():
+    r = _validate(
+        [wisuda_row(nim="209900001", nama="MAHASISWA CONTOH")],
+        [],
+        [
+            certiport_row(
+                full_name="MAHASISWA CONTOH",
+                nim="209900001",
+                certification_name="MOS",
+                result="PASS",
+            )
+        ],
+    )[0]
+
+    assert r["certiport_match"]["status"] == "MATCHED"
+    assert r["mos_status"] == VALID
+    assert build_wisuda_fill_values(r["mos_status"], r["mcf_status"])["mos"] == "MOS (Lulus)"
+
+
+def test_same_name_but_different_nim_is_conflict():
+    r = _validate(
+        [wisuda_row(nim="209900001", nama="MAHASISWA CONTOH")],
+        [],
+        [
+            certiport_row(
+                full_name="MAHASISWA CONTOH",
+                nim="999999999",
+                certification_name="MOS",
+                result="PASS",
+            )
+        ],
+    )[0]
+
+    assert r["validation_status"] == PERLU_VERIFIKASI
+    assert r["mos_status"] != VALID
+    assert build_wisuda_fill_values(r["mos_status"], r["mcf_status"])["mos"] == ""
+    assert any("Konflik NIM" in flag for flag in r["review_flags"])
+
+
+def test_same_name_multiple_records_with_one_nim_conflict_requires_review():
+    r = _validate(
+        [wisuda_row(nim="209900001", nama="MAHASISWA CONTOH")],
+        [],
+        [
+            certiport_row(id=100, source_row=2, full_name="MAHASISWA CONTOH", nim="209900001", certification_name="MOS", result="PASS"),
+            certiport_row(id=101, source_row=3, full_name="MAHASISWA CONTOH", nim="999999999", certification_name="MCF", result="PASS"),
+        ],
+    )[0]
+
+    assert r["validation_status"] == PERLU_VERIFIKASI
+    assert r["mos_status"] != VALID
+    assert r["mcf_status"] != VALID
+    assert any("Konflik NIM" in flag for flag in r["review_flags"])
+
+
+def test_two_similar_students_are_not_cross_matched():
+    r = _validate(
+        [wisuda_row(nim="209900001", nama="ANDI BUDIMAN")],
+        [],
+        [
+            certiport_row(
+                full_name="ANDI BUDIMAN S",
+                certification_name="MOS",
+                result="PASS",
+            )
+        ],
+    )[0]
+
+    assert r["validation_status"] == PERLU_VERIFIKASI
+    assert r["mos_status"] != VALID
+    assert build_wisuda_fill_values(r["mos_status"], r["mcf_status"])["mos"] == ""
+
+
+def test_name_order_degree_and_spacing_variation_is_exact_identity():
+    r = _validate(
+        [wisuda_row(nim="202310129", nama="MUHAMMAD ALFARISY AKBAR")],
+        [],
+        [
+            certiport_row(
+                full_name="  Akbar   Muhammad Alfarisy, S.Kom. ",
+                certification_name="MOS",
+                result="PASS",
+            )
+        ],
+    )[0]
+
+    assert r["certiport_match"]["status"] == "MATCHED"
+    assert r["mos_status"] == VALID
+
+
+def test_multiple_fuzzy_candidates_are_not_selected_automatically():
+    r = _validate(
+        [wisuda_row(nim="209900001", nama="MAHASISWA CONTOH SATU")],
+        [],
+        [
+            certiport_row(id=100, source_row=2, full_name="MAHASISWA CONTOH DUA", certification_name="MOS", result="PASS"),
+            certiport_row(id=101, source_row=3, full_name="MAHASISWA CONTOH TIGA", certification_name="MOS", result="PASS"),
+        ],
+    )[0]
+
+    assert r["validation_status"] == PERLU_VERIFIKASI
+    assert r["mos_status"] != VALID
+    assert len(r["certiport_match"]["candidates"]) >= 2
+    assert build_wisuda_fill_values(r["mos_status"], r["mcf_status"])["mos"] == ""
 
 

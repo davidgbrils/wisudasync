@@ -39,7 +39,7 @@ Catatan: Bentuk respons yang sudah ada pada starter dapat berbeda dari contoh ta
 | GET | `/sync/{session_id}/results` | Hasil per baris dengan filter status/search/needs_review | SUDAH ADA, petugas saja |
 | GET | `/sync/{session_id}/results/{result_id}` | Detail dan sumber bukti + riwayat review | SUDAH ADA, petugas saja |
 | PATCH | `/sync/{session_id}/results/{result_id}/review` | Review manual (jejak audit append-only) | SUDAH ADA, petugas saja |
-| GET | `/sync/{session_id}/export` | Download workbook; `mode=draft` (200) / `mode=final` (403 sampai disahkan) | SUDAH ADA, petugas saja |
+| GET | `/sync/{session_id}/export` | Download workbook; `mode=final` (default, isi LULUS) / `mode=draft` (berlabel) | SUDAH ADA, petugas saja |
 | GET | `/dashboard/summary` | Ringkasan master/proses | RENCANA (tidak dipakai; UI memakai endpoint batch langsung) |
 
 ### `POST /sync/validate`
@@ -48,11 +48,11 @@ Request multipart `file` berformat `.xlsx` dengan sheet `Wisuda`. Endpoint ini h
 ## 3. Upload data master
 ### `POST /sitasi/import`
 Form: `file` (Excel `.xlsx`, maksimum default 10 MiB; dapat diatur melalui `MAX_UPLOAD_SIZE_BYTES`). Sheet wajib `Master_Data`. Parser menolak formula pada kolom wajib dan workbook bermacro.
-Validasi header wajib: `NIM`, `Nama`, `Fakultas`, `Kode NIM`, `Program Studi`, `Angkatan`, `Sertifikasi`, `Sub Program`, `Nilai`, `Status`.
+Header wajib (skema ringkas): `NIM`, `Nama`, `Sertifikasi`, `Nilai`, `Status`. Header opsional: `Kode NIM`, `Program Studi`, `Fakultas`, `Angkatan`, `Sub Program`.
 
 ### `POST /certiport/import`
-Form: `file` (Excel `.xlsx`, maksimum default 10 MiB; dapat diatur melalui `MAX_UPLOAD_SIZE_BYTES`). Sheet wajib `Results (264) Plus`. Parser menolak formula pada kolom wajib dan workbook bermacro. Pengecualian: kolom `Full Name` boleh berupa formula CONCATENATE (lazim pada ekspor resmi); nilainya dibaca dari cache, dan bila tidak tersedia diturunkan dari `First Name` + `Last Name`.
-Header wajib: `First Name`, `Last Name`, `Full Name`, `Program Name`, `Certification Name`, `Score`, `Result`.
+Form: `file` (Excel `.xlsx`, maksimum default 10 MiB; dapat diatur melalui `MAX_UPLOAD_SIZE_BYTES`). Sheet wajib `Results (264) Plus`. Parser menolak formula pada kolom wajib dan workbook bermacro.
+Header wajib (skema ringkas): `Nama`, `Sertifikasi`, `Nilai`, `Status`. Skema lama (`First Name`, `Last Name`, `Full Name`, `Program Name`, `Certification Name`, `Score`, `Result`) masih dibaca sebagai fallback. Status sumber `LULUS`/`PASS` dipetakan menjadi `PASS`; `TIDAK LULUS`/`GAGAL`/`FAIL` menjadi `FAIL`.
 
 Respons contoh rancangan:
 ```json
@@ -130,8 +130,15 @@ Mengembalikan detail baris wisuda, seluruh bukti yang diperlukan dari SITASI dan
 ```
 Nilai decision yang direncanakan: `KONFIRMASI_COCOK`, `TIDAK_COCOK`, `TUNDA_VERIFIKASI`. Backend memeriksa hak petugas dan mencatat audit. `KONFIRMASI_COCOK` memverifikasi **identitas**, bukan mengganti status ujian dari gagal menjadi lulus.
 
-## 7. Export (target)
-`GET /sync/{id}/export` → `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` + attachment filename aman. Jika mapping kolom output belum disetujui, backend harus menolak ekspor administratif final atau memberi watermark/indikasi draft sesuai keputusan petugas.
+## 7. Export
+`GET /sync/{id}/export?mode=final` (default) → workbook delapan kolom Wisuda. Kolom `Sertifikasi MOS`, `Sertifikasi MCF`, dan `Title Microsoft` hanya diisi untuk status `VALID` (LULUS); status lain kosong. `mode=draft` mengembalikan data yang sama dengan awalan `[DRAFT] `.
+
+Format isi yang disetujui 2026-10-23:
+- `Sertifikasi MOS`: `MOS (Lulus)` atau kosong.
+- `Sertifikasi MCF`: `MCF (Lulus)` untuk prodi 31/32 atau kosong.
+- `Title Microsoft`: `MOS`, `MCF`, `MOS, MCF`, atau kosong.
+
+`Content-Disposition` memakai nama berkas aman `wisuda_<mode>_<session-prefix>.xlsx`.
 
 ## 8. Pengamanan API
 - Ekstensi dan struktur ZIP OOXML `.xlsx`, batas `MAX_UPLOAD_SIZE_BYTES`, penolakan formula/macro, serta nama sheet dan header wajib.

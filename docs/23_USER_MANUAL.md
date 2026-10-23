@@ -2,7 +2,7 @@
 
 Panduan ini untuk **petugas ITCC** yang memakai aplikasi ITCC Wisuda Sync melalui browser. Bahasa dibuat sederhana. Semua contoh identitas bersifat fiktif.
 
-> **Penting:** Ekspor **final** masih terkunci sampai pemetaan output disetujui (lihat `docs/20_OUTPUT_MAPPING_APPROVAL.md`). Saat ini petugas hanya dapat mengunduh **pratinjau DRAFT** berlabel `[DRAFT]`. Selama lingkungan Supabase **development berizin** belum tersedia, aplikasi belum boleh dipakai dengan data asli.
+> **Penting:** Sejak 2026-10-23 ekspor **final** aktif. Kolom `Sertifikasi MOS`, `Sertifikasi MCF`, dan `Title Microsoft` hanya diisi untuk status **LULUS**; status lain dikosongkan. Pratinjau DRAFT tetap tersedia. Selama lingkungan Supabase **development berizin** belum tersedia, aplikasi belum boleh dipakai dengan data asli.
 
 ---
 
@@ -18,7 +18,7 @@ Alur singkat petugas:
 ```
 Login  →  (Data Master sudah diimpor)  →  Sinkronisasi (Upload Wisuda)
        →  Validasi file  →  Proses Sinkronisasi  →  Review hasil
-       →  Unduh Pratinjau (DRAFT)
+       →  Unduh Excel Final (LULUS saja)
 ```
 
 ---
@@ -54,7 +54,9 @@ Detail langkah, format file, dan pemulihan kegagalan ada di `docs/24_OPERATOR_GU
    - ringkasan batch SITASI dan Certiport yang aktif.
 4. Perbaiki berkas bila ada masalah, lalu unggah ulang.
 
-Berkas `.xlsx` wajib. Berkas `.xlsm`/bermakro, berkas berformula pada kolom wajib, dan berkas melebihi batas ukuran (default 10 MiB) akan ditolak dengan pesan kesalahan. Khusus Certiport, kolom `Full Name` boleh berupa formula CONCATENATE (seperti pada ekspor resmi); sistem memakai nilainya atau menurunkannya dari `First Name` + `Last Name`.
+Berkas `.xlsx` wajib. Berkas `.xlsm`/bermakro, berkas berformula pada kolom wajib, dan berkas melebihi batas ukuran (default 10 MiB) akan ditolak dengan pesan kesalahan.
+
+Header SITASI: `NIM`, `Nama`, `Sertifikasi`, `Nilai`, `Status` (opsional: `Kode NIM`, `Program Studi`, `Fakultas`, `Angkatan`, `Sub Program`). Header Certiport: `Nama`, `Sertifikasi`, `Nilai`, `Status`. Skema lama Certiport masih dibaca sebagai fallback.
 
 ---
 
@@ -100,11 +102,9 @@ Status yang mungkin muncul (`docs/02_PRD.md` §7):
 ## 7. Ekspor
 
 1. Di halaman hasil, gunakan bilah **Ekspor**.
-2. Klik **Unduh Pratinjau Excel (DRAFT)** untuk mengunduh berkas `.xlsx` berlabel `[DRAFT]`. Susunan sheet, kolom, dan formula non-target dipertahankan, dan ditambahkan sheet audit.
-3. Tombol **Unduh Excel Final Resmi** **dinonaktifkan** selama pemetaan output belum disetujui. Memaksa `mode=final` akan ditolak (`403`).
-4. Buka berkas DRAFT di Microsoft Excel untuk memeriksa beberapa baris sampel.
-
-Syarat mengaktifkan ekspor final: `docs/20_OUTPUT_MAPPING_APPROVAL.md` ditandatangani, lalu pengembang membuka gate kebijakan.
+2. Klik **Unduh Excel Final** untuk mengunduh workbook delapan kolom Wisuda. Kolom `Sertifikasi MOS` berisi `MOS (Lulus)`, `Sertifikasi MCF` berisi `MCF (Lulus)` (prodi 31/32), dan `Title Microsoft` berisi `MOS`, `MCF`, atau `MOS, MCF`. Sel yang tidak LULUS kosong.
+3. Klik **Unduh Pratinjau (DRAFT)** bila ingin berkas berlabel `[DRAFT]` untuk pemeriksaan internal.
+4. Untuk pemrosesan lokal tanpa aplikasi web, jalankan `backend/scripts/generate_validation_workbook.py`. Hasilnya `hasil_wisuda_terisi.xlsx`; `data_wisuda.xlsx` asli tidak diubah.
 
 ---
 
@@ -122,14 +122,14 @@ Buka menu **Riwayat** (`/riwayat`) untuk melihat daftar sesi (waktu, nama file, 
 | Halaman "Akses ditolak" | Akun bukan petugas aktif | Hubungi admin |
 | Tombol proses menolak | Batch SITASI/Certiport belum aktif | Impor data master lebih dulu |
 | Berkas ditolak | Bukan `.xlsx`, sheet/header salah, bermakro, atau >10 MiB | Perbaiki sesuai pesan |
-| Ekspor final tidak bisa | Gate ADR belum disahkan | Gunakan pratinjau DRAFT |
+| Kolom sertifikasi kosong | Status bukan LULUS atau data tidak ditemukan | Periksa sumber SITASI/Certiport; jangan mengisi manual tanpa bukti |
 | Status banyak `PERLU_VERIFIKASI` | Nama ambigu/ujian tak ekuivalen | Tinjau manual; jangan paksa VALID |
 
 ---
 
 ## 10. Yang belum ada (jangan diasumsikan)
 
-- **Ekspor final resmi** — terkunci sampai pengesahan.
+- **Ekspor final resmi** — aktif, tetapi hanya mengisi bukti LULUS (bukan syarat wisuda).
 - **Integrasi langsung API SITASI/Certiport** — di luar MVP; sumber tetap diimpor dari Excel.
 - **Akurasi terukur** — belum ada ground truth yang diverifikasi; skor fuzzy bukan persentase kebenaran.
 - **UAT & verifikasi runtime Supabase** — belum dijalankan (lihat `docs/22_UAT_FORM.md`).

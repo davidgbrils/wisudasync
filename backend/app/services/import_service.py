@@ -28,20 +28,14 @@ HEADER_SEARCH_ROWS = 10
 SITASI_SHEET = "Master_Data"
 CERTIPORT_SHEET = "Results (264) Plus"
 
-SITASI_COLUMNS = [
-    "NIM",
-    "Nama",
-    "Fakultas",
-    "Kode NIM",
-    "Program Studi",
-    "Angkatan",
-    "Sertifikasi",
-    "Sub Program",
-    "Nilai",
-    "Status",
-]
+# Skema ringkas 2026-10-23: kolom yang benar-benar dipakai untuk validasi.
+SITASI_REQUIRED_COLUMNS = ["NIM", "Nama", "Sertifikasi", "Nilai", "Status"]
+SITASI_OPTIONAL_COLUMNS = ["Kode NIM", "Program Studi", "Fakultas", "Angkatan", "Sub Program"]
 
-CERTIPORT_COLUMNS = [
+CERTIPORT_REQUIRED_COLUMNS = ["Nama", "Sertifikasi", "Nilai", "Status"]
+
+# Skema lama tetap dibaca agar berkas lama tidak langsung ditolak.
+CERTIPORT_LEGACY_COLUMNS = [
     "First Name",
     "Last Name",
     "Full Name",
@@ -51,13 +45,24 @@ CERTIPORT_COLUMNS = [
     "Result",
 ]
 
-# Kolom certiport yang lazim berisi formula CONCATENATE pada ekspor resmi.
-# Nilai dibaca dari cache/last name bila formula belum tersimpan nilainya.
+# Kolom certiport legacy yang lazim berisi formula CONCATENATE pada ekspor resmi.
 CERTIPORT_FORMULA_COLUMNS = frozenset({"Full Name"})
+
+CERTIPORT_PROGRAM_BY_CATEGORY = {
+    "MOS": "MICROSOFT OFFICE SPECIALIST",
+    "MCF": "MICROSOFT CERTIFIED FUNDAMENTALS",
+}
+
+SITASI_PASS_STATUSES = {"LULUS", "PASS", "PASSED"}
+SITASI_FAIL_STATUSES = {"TIDAK LULUS", "GAGAL", "FAIL", "FAILED"}
 
 
 class ImportValidationError(ValueError):
     """File sumber tidak cocok dengan kontrak impor."""
+
+
+class MissingHeaderError(ImportValidationError):
+    """Sheet tidak memiliki header yang diwajibkan skema tertentu."""
 
 
 class UploadTooLargeError(ImportValidationError):
@@ -132,7 +137,7 @@ def _header_row(worksheet, required: list[str]) -> tuple[int, list[str]]:
             raise ImportValidationError("Header workbook mengandung nama kolom ganda.")
         if all(column in present for column in required):
             return row_number, headers
-    raise ImportValidationError("Sheet tidak memiliki seluruh header wajib.")
+    raise MissingHeaderError("Sheet tidak memiliki seluruh header wajib.")
 
 
 def _open_validated_workbook(
@@ -225,11 +230,28 @@ def _read_sheet(
         )
         df.columns = [str(column).strip() for column in df.columns]
         if not all(column in df.columns for column in required):
-            raise ImportValidationError("Sheet tidak memiliki seluruh header wajib.")
+            raise MissingHeaderError("Sheet tidak memiliki seluruh header wajib.")
         return workbook, worksheet, df, header_row, headers
     except Exception:
         workbook.close()
         raise
+
+
+def _value_if_present(row, column: str):
+    """Ambil nilai kolom opsional tanpa gagal bila kolom tidak ada."""
+    if column not in row.index:
+        return None
+    return row[column]
+
+
+def _normalize_result_label(value) -> str | None:
+    """Samakan label hasil sumber menjadi PASS/FAIL untuk mesin matching."""
+    text = normalize_upper(value)
+    if text in SITASI_PASS_STATUSES:
+        return "PASS"
+    if text in SITASI_FAIL_STATUSES:
+        return "FAIL"
+    return text
 
 
 def parse_sitasi(
@@ -241,7 +263,7 @@ def parse_sitasi(
     workbook, worksheet, df, header_row, headers = _read_sheet(
         content,
         SITASI_SHEET,
-        SITASI_COLUMNS,
+        SITASI_REQUIRED_COLUMNS,
     )
     nim_column = headers.index("NIM") + 1
     rows: list[dict] = []
@@ -251,19 +273,27 @@ def parse_sitasi(
                 continue
             source_row = int(index) + header_row + 1
             nim_cell = worksheet.cell(row=source_row, column=nim_column)
+            nim = _normalize_nim(nim_cell.value, nim_cell.number_format)
             nama = _original_text(row["Nama"])
+            sertifikasi = normalize_upper(row["Sertifikasi"])
+            if not nim:
+                raise ImportValidationError(f"Baris {source_row}: NIM wajib diisi.")
+            if not nama:
+                raise ImportValidationError(f"Baris {source_row}: Nama wajib diisi.")
+            if not sertifikasi:
+                raise ImportValidationError(f"Baris {source_row}: Sertifikasi wajib diisi.")
             rows.append(
                 {
                     "source_row": source_row,
-                    "nim": _normalize_nim(nim_cell.value, nim_cell.number_format),
+                    "nim": nim,
                     "nama": nama,
                     "nama_normalized": normalize_name(nama),
-                    "fakultas": clean_text(row["Fakultas"]),
-                    "kode_nim": normalize_code(row["Kode NIM"]),
-                    "program_studi": clean_text(row["Program Studi"]),
-                    "angkatan": normalize_code(row["Angkatan"]),
-                    "sertifikasi": normalize_upper(row["Sertifikasi"]),
-                    "sub_program": clean_text(row["Sub Program"]),
+                    "fakultas": clean_text(_value_if_present(row, "Fakultas")),
+                    "kode_nim": normalize_code(_value_if_present(row, "Kode NIM")),
+                    "program_studi": clean_text(_value_if_present(row, "Program Studi")),
+                    "angkatan": normalize_code(_value_if_present(row, "Angkatan")),
+                    "sertifikasi": sertifikasi,
+                    "sub_program": clean_text(_value_if_present(row, "Sub Program")),
                     "nilai": to_number(row["Nilai"]),
                     "status": normalize_upper(row["Status"]),
                 }
@@ -276,16 +306,52 @@ def parse_sitasi(
     return ParsedWorkbook(sheet_name=SITASI_SHEET, rows=rows)
 
 
-def parse_certiport(
-    file_obj: BinaryIO,
-    file_name: str = "upload.xlsx",
-    max_upload_bytes: int = MAX_UPLOAD_BYTES,
-) -> ParsedWorkbook:
-    content = _read_upload(file_name, file_obj, max_upload_bytes)
+def _parse_certiport_simplified(content: bytes) -> ParsedWorkbook:
+    """Skema ringkas: Nama, Sertifikasi, Nilai, Status."""
     workbook, worksheet, df, header_row, _ = _read_sheet(
         content,
         CERTIPORT_SHEET,
-        CERTIPORT_COLUMNS,
+        CERTIPORT_REQUIRED_COLUMNS,
+    )
+    rows: list[dict] = []
+    try:
+        for index, row in df.iterrows():
+            if row.isna().all():
+                continue
+            source_row = int(index) + header_row + 1
+            full_name = _original_text(row["Nama"])
+            category = normalize_upper(row["Sertifikasi"])
+            if not full_name:
+                raise ImportValidationError(f"Baris {source_row}: Nama wajib diisi.")
+            if not category:
+                raise ImportValidationError(f"Baris {source_row}: Sertifikasi wajib diisi.")
+            rows.append(
+                {
+                    "source_row": source_row,
+                    "first_name": None,
+                    "last_name": None,
+                    "full_name": full_name,
+                    "full_name_normalized": normalize_name(full_name),
+                    "program_name": CERTIPORT_PROGRAM_BY_CATEGORY.get(category, category),
+                    "certification_name": category,
+                    "score": to_number(row["Nilai"]),
+                    "result": _normalize_result_label(row["Status"]),
+                }
+            )
+    finally:
+        workbook.close()
+
+    if not rows:
+        raise ImportValidationError("Workbook tidak berisi baris data.")
+    return ParsedWorkbook(sheet_name=CERTIPORT_SHEET, rows=rows)
+
+
+def _parse_certiport_legacy(content: bytes) -> ParsedWorkbook:
+    """Skema lama: First Name, Last Name, Full Name, Program Name, dst."""
+    workbook, worksheet, df, header_row, _ = _read_sheet(
+        content,
+        CERTIPORT_SHEET,
+        CERTIPORT_LEGACY_COLUMNS,
         CERTIPORT_FORMULA_COLUMNS,
     )
     rows: list[dict] = []
@@ -300,6 +366,8 @@ def parse_certiport(
             if full_name is None:
                 parts = [part for part in (first_name, last_name) if part]
                 full_name = " ".join(parts) or None
+            if not full_name:
+                raise ImportValidationError(f"Baris {source_row}: Nama wajib diisi.")
             rows.append(
                 {
                     "source_row": source_row,
@@ -310,7 +378,7 @@ def parse_certiport(
                     "program_name": clean_text(row["Program Name"]),
                     "certification_name": clean_text(row["Certification Name"]),
                     "score": to_number(row["Score"]),
-                    "result": normalize_upper(row["Result"]),
+                    "result": _normalize_result_label(row["Result"]),
                 }
             )
     finally:
@@ -319,6 +387,18 @@ def parse_certiport(
     if not rows:
         raise ImportValidationError("Workbook tidak berisi baris data.")
     return ParsedWorkbook(sheet_name=CERTIPORT_SHEET, rows=rows)
+
+
+def parse_certiport(
+    file_obj: BinaryIO,
+    file_name: str = "upload.xlsx",
+    max_upload_bytes: int = MAX_UPLOAD_BYTES,
+) -> ParsedWorkbook:
+    content = _read_upload(file_name, file_obj, max_upload_bytes)
+    try:
+        return _parse_certiport_simplified(content)
+    except MissingHeaderError:
+        return _parse_certiport_legacy(content)
 
 
 def _chunks(rows: list[dict], size: int | None = None):

@@ -402,3 +402,104 @@ def test_rpc_failure_cleans_staging_and_preserves_old_active():
     assert supabase.imports[0]["is_active"] is True
     assert supabase.imports[1]["status"] == "FAILED"
     assert supabase.rows == []
+
+
+SIMPLIFIED_SITASI_HEADERS = [
+    "NIM",
+    "Nama",
+    "Kode NIM",
+    "Program Studi",
+    "Sertifikasi",
+    "Nilai",
+    "Status",
+]
+
+SIMPLIFIED_CERTIPORT_HEADERS = ["Nama", "Sertifikasi", "Nilai", "Status"]
+
+
+def test_parse_sitasi_accepts_simplified_headers():
+    workbook = make_xlsx(
+        "Master_Data",
+        SIMPLIFIED_SITASI_HEADERS,
+        [["202331243", "Nama Uji", "31", "S1 Teknik Informatika", "MOS", 850, "Lulus"]],
+    )
+
+    parsed = parse_sitasi(workbook, "data_sitasi.xlsx")
+
+    row = parsed.rows[0]
+    assert row["nim"] == "202331243"
+    assert row["kode_nim"] == "31"
+    assert row["program_studi"] == "S1 Teknik Informatika"
+    assert row["sertifikasi"] == "MOS"
+    assert row["nilai"] == 850
+    assert row["status"] == "LULUS"
+    assert row["sub_program"] is None
+    assert row["fakultas"] is None
+
+
+def test_parse_certiport_accepts_simplified_headers_and_maps_status():
+    workbook = make_xlsx(
+        "Results (264) Plus",
+        SIMPLIFIED_CERTIPORT_HEADERS,
+        [
+            ["Nama Uji", "MOS", 900, "Lulus"],
+            ["Nama Lain", "MCF", 700, "Tidak Lulus"],
+        ],
+    )
+
+    parsed = parse_certiport(workbook, "data_certiport.xlsx")
+
+    assert parsed.rows[0]["full_name"] == "Nama Uji"
+    assert parsed.rows[0]["full_name_normalized"] == "NAMA UJI"
+    assert parsed.rows[0]["program_name"] == "MICROSOFT OFFICE SPECIALIST"
+    assert parsed.rows[0]["certification_name"] == "MOS"
+    assert parsed.rows[0]["score"] == 900
+    assert parsed.rows[0]["result"] == "PASS"
+    assert parsed.rows[1]["program_name"] == "MICROSOFT CERTIFIED FUNDAMENTALS"
+    assert parsed.rows[1]["result"] == "FAIL"
+
+
+def test_parse_sitasi_rejects_empty_required_value():
+    workbook = make_xlsx(
+        "Master_Data",
+        SIMPLIFIED_SITASI_HEADERS,
+        [["202331243", "", "31", "S1 Teknik Informatika", "MOS", 850, "Lulus"]],
+    )
+
+    with pytest.raises(ImportValidationError, match="Nama wajib"):
+        parse_sitasi(workbook, "data_sitasi.xlsx")
+
+
+def test_parse_certiport_rejects_empty_name_and_category():
+    empty_name = make_xlsx(
+        "Results (264) Plus",
+        SIMPLIFIED_CERTIPORT_HEADERS,
+        [["", "MOS", 900, "Lulus"]],
+    )
+    empty_category = make_xlsx(
+        "Results (264) Plus",
+        SIMPLIFIED_CERTIPORT_HEADERS,
+        [["Nama Uji", "", 900, "Lulus"]],
+    )
+
+    with pytest.raises(ImportValidationError, match="Nama wajib"):
+        parse_certiport(empty_name, "data_certiport.xlsx")
+    with pytest.raises(ImportValidationError, match="Sertifikasi wajib"):
+        parse_certiport(empty_category, "data_certiport.xlsx")
+
+
+def test_parse_certiport_preserves_duplicate_rows():
+    workbook = make_xlsx(
+        "Results (264) Plus",
+        SIMPLIFIED_CERTIPORT_HEADERS,
+        [
+            ["Nama Uji", "MOS", 900, "Lulus"],
+            ["Nama Uji", "MOS", 900, "Lulus"],
+        ],
+    )
+
+    parsed = parse_certiport(workbook, "data_certiport.xlsx")
+
+    assert len(parsed.rows) == 2
+    assert [row["source_row"] for row in parsed.rows] == [2, 3]
+    assert [row["full_name"] for row in parsed.rows] == ["Nama Uji", "Nama Uji"]

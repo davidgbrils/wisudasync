@@ -8,15 +8,19 @@ Dokumen ini adalah **gerbang keputusan bisnis resmi** sebelum ekspor administrat
 
 | Topik | ADR Terkait | Status Saat Ini | Dampak Implementasi |
 |---|---|---|---|
-| Format Isi Kolom `Sertifikasi MOS`, `MCF` | ADR-003 | **TERBUKA (BLOCKED)** | Ekspor final diblokir; hanya pratinjau DRAFT berlabel |
-| Ekuivalensi Alias & Versi Ujian | ADR-005 | **DISETUJUI (APPROVED)** | Alias resmi (Word 2019, Excel 2019, Azure AI-900) otomatis menghasilkan status `VALID` bila SITASI LULUS dan Certiport PASS |
-| Format & Definisi `Title Microsoft` | ADR-006 | **TERBUKA (BLOCKED)** | Kolom tidak diisi otomatis pada ekspor final |
-| Perlakuan Sel yang Sudah Terisi | ADR-010 | **TERBUKA (BLOCKED)** | Dilarang menimpa (overwrite) data pra-ekspor |
-| Syarat Sertifikasi per Prodi / Wisuda | ADR-011 | **TERBUKA (BLOCKED)** | Sistem tidak menyimpulkan kelulusan syarat wisuda |
+| Format Isi Kolom `Sertifikasi MOS`, `MCF` | ADR-003 | **DISETUJUI 2026-10-23** | Isi hanya LULUS: `MOS (Lulus)` / `MCF (Lulus)`; ekspor final aktif |
+| Ekuivalensi Alias & Versi Ujian | ADR-005 | **DISETUJUI (APPROVED)** | Relevan untuk berkas legacy bersub-program; skema ringkas memakai kategori |
+| Format & Definisi `Title Microsoft` | ADR-006 | **DISETUJUI 2026-10-23** | `MOS`, `MCF`, atau `MOS, MCF`; kosong bila tidak lulus |
+| Perlakuan Sel yang Sudah Terisi | ADR-010 | **DISETUJUI 2026-10-23** | Berkas keluaran baru; sel non-LULUS dikosongkan |
+| Syarat Sertifikasi per Prodi / Wisuda | ADR-011 | **DISETUJUI 2026-10-23** | Mengisi bukti LULUS saja; tidak menyimpulkan syarat wisuda |
+
+**Catatan keputusan 2026-10-23:** Pemilik project menyetujui format ringkas karena `data_sitasi.xlsx` dan `data_certiport.xlsx` kini hanya memuat kolom `NIM/Nama/Sertifikasi/Nilai/Status` (SITASI) dan `Nama/Sertifikasi/Nilai/Status` (Certiport). Tidak ada lagi sub-program, sehingga nama produk (Word/Excel) tidak dapat dicantumkan.
 
 ---
 
 ## 2. Tabel Pertanyaan Keputusan, Opsi Kebijakan, dan Contoh Anonim
+
+> **Catatan historis:** tabel opsi di bawah adalah bahan diskusi awal. Keputusan yang berlaku adalah ringkasan pada Bagian 1 dan ketetapan pada Bagian 3 (2026-10-23). Opsi yang menyebut nama produk (Word/Excel) tidak lagi relevan karena sumber ringkas tidak memuat sub-program.
 
 ### Pertanyaan 1: Format Teks pada Kolom `Sertifikasi MOS` dan `Sertifikasi MCF` (ADR-003)
 *Temuan data contoh:* Kolom F berisi teks seperti `MOS (Word 2019 - Lulus)`, `MOS (Excel 2019 - Lulus)`, `MOS (Word 2019 - Tidak lulus)`. Kolom G (`Sertifikasi MCF`) kosong pada data contoh.
@@ -101,11 +105,21 @@ Dokumen ini adalah **gerbang keputusan bisnis resmi** sebelum ekspor administrat
 
 ---
 
-## 3. Ketetapan Implementasi Teknis Sebelum Pengesahan
+## 3. Ketetapan Implementasi Setelah Pengesahan 2026-10-23
 
-1. **Ekspor Final Resmi DIBLOKIR**: Endpoint `GET /api/v1/sync/{id}/export?mode=final` mengembalikan respons `403 Forbidden` disertai pesan penolakan yang merujuk pada dokumen ini.
-2. **Ekspor Pratinjau DRAFT Diizinkan**: Endpoint `GET /api/v1/sync/{id}/export?mode=draft` menghasilkan berkas Excel dengan watermark/label `[DRAFT - PRATINJAU BELUM DISAHKAN]` pada kolom target atau nama file, mempertahankan seluruh susunan sheet dan formula non-target.
-3. **Tombol UI Final Nonaktif**: Pada antarmuka pengguna, tombol "Unduh Excel Final" ditampilkan dalam keadaan dinonaktifkan (disabled) dengan tooltip penjelasan.
+1. **Ekspor Final Aktif**: `GET /api/v1/sync/{id}/export?mode=final` menghasilkan workbook delapan kolom Wisuda. Kolom `Sertifikasi MOS`/`MCF`/`Title Microsoft` hanya diisi untuk status `VALID`.
+2. **Ekspor Pratinjau DRAFT Tetap Tersedia**: `mode=draft` menghasilkan data yang sama dengan label `[DRAFT] ` pada sel terisi.
+3. **Tombol UI Final Aktif**: Tombol "Unduh Excel Final" tersedia di halaman hasil sinkronisasi; tombol pratinjau DRAFT tetap disediakan.
+4. **Berkas lokal**: Script `backend/scripts/generate_validation_workbook.py` menulis berkas baru `hasil_wisuda_terisi.xlsx` dan tidak menimpa `data_wisuda.xlsx`.
+
+### Rekaman persetujuan
+
+| Tanggal | ADR | Pilihan disetujui | Pemberi persetujuan | Bukti | Dampak kode/test |
+|---|---|---|---|---|---|
+| 2026-10-23 | ADR-003 | Hanya LULUS; `MOS (Lulus)`/`MCF (Lulus)` | Pemilik project | Instruksi percakapan & perubahan berkas Excel | `build_wisuda_fill_values`, ekspor final |
+| 2026-10-23 | ADR-006 | `MOS`, `MCF`, `MOS, MCF` | Pemilik project | Instruksi percakapan | `build_wisuda_fill_values`, UI |
+| 2026-10-23 | ADR-010 | Berkas baru, non-LULUS kosong | Pemilik project | Instruksi percakapan | generator lokal & ekspor |
+| 2026-10-23 | ADR-011 | Isi bukti LULUS saja | Pemilik project | Instruksi percakapan | mesin matching & ekspor |
 
 ---
 

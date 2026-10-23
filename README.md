@@ -2,7 +2,7 @@
 
 Aplikasi web internal untuk mengimpor data master SITASI & Certiport, mengunggah Excel wisuda, mencocokkan berdasarkan NIM, memverifikasi dengan Certiport, meninjau kasus ambigu, dan mengekspor Excel. Alur: **Next.js → FastAPI → Supabase**.
 
-**Status terkini:** backend (auth, impor, matching, sinkronisasi, review, export-gate) dan frontend terimplementasi serta lulus **134 test otomatis + typecheck + build** dengan fixture sintetis. **Belum siap production**: migrasi SQL/RLS belum dieksekusi pada Supabase, UAT browser belum dijalankan, dan ekspor final masih terkunci. Lihat `docs/22_UAT_FORM.md` dan `docs/25_LAPORAN_MAGANG.md`.
+**Status terkini:** backend (impor skema ringkas, matching, sinkronisasi, review, ekspor) dan frontend terimplementasi serta lulus **165 test otomatis + typecheck + build** dengan fixture sintetis. Ekspor final aktif dan hanya mengisi status LULUS. **Belum siap production**: migrasi SQL/RLS belum dieksekusi pada Supabase dan UAT browser belum dijalankan. Lihat `docs/22_UAT_FORM.md` dan `docs/25_LAPORAN_MAGANG.md`.
 
 Dokumentasi lengkap ada di [`docs/README.md`](docs/README.md).
 
@@ -75,7 +75,7 @@ npm audit --audit-level=moderate
 - Gunakan hanya fixture anonim atau data dummy untuk pengujian lokal.
 - Endpoint data (SITASI/Certiport/Sync) memerlukan Bearer token petugas aktif; `/health` publik.
 - Konfigurasi dummy hanya mendukung health check, bukan operasi Supabase.
-- Mapping `Sertifikasi MOS`, `Sertifikasi MCF`, dan `Title Microsoft` belum disetujui dan tidak diisi otomatis; ekspor final terkunci (`403`).
+- Mapping `Sertifikasi MOS`, `Sertifikasi MCF`, dan `Title Microsoft` telah disetujui 2026-10-23. Hanya status LULUS yang diisi (`MOS (Lulus)`/`MCF (Lulus)`); MCF hanya prodi 31/32. Skema sumber ringkas tidak lagi memuat sub-program.
 - Jangan jalankan deployment sebelum UAT selesai dan pengesahan output ditandatangani.
 
 Detail implementasi tersedia di [`README_PHASE4.md`](README_PHASE4.md). Aturan agent tersedia di [`AGENTS.md`](AGENTS.md), sedangkan dokumentasi produk berada di [`docs/README.md`](docs/README.md).

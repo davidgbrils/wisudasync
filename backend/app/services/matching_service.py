@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from typing import Any
 
@@ -35,6 +36,34 @@ STATUS_LABELS: dict[str, str] = {
 # Label untuk status per programmatically yang belum dipetakan.
 STATUS_LABEL_UNKNOWN = "-"
 
+# Format isian kolom Wisuda yang disetujui pemilik project pada 2026-10-23.
+FILLED_MOS_TEXT = "MOS (Lulus)"
+FILLED_MCF_TEXT = "MCF (Lulus)"
+TITLE_MOS = "MOS"
+TITLE_MCF = "MCF"
+
+
+def build_wisuda_fill_values(mos_status: Any, mcf_status: Any) -> dict[str, str]:
+    """Teks yang ditulis ke kolom Wisuda. Hanya status VALID yang diisi.
+
+    Status selain VALID (tidak lulus, tidak ditemukan, perlu verifikasi)
+    menghasilkan sel kosong sesuai keputusan pemilik project.
+    """
+    mos_text = FILLED_MOS_TEXT if mos_status == VALID else ""
+    mcf_text = FILLED_MCF_TEXT if mcf_status == VALID else ""
+
+    titles: list[str] = []
+    if mos_text:
+        titles.append(TITLE_MOS)
+    if mcf_text:
+        titles.append(TITLE_MCF)
+
+    return {
+        "mos": mos_text,
+        "mcf": mcf_text,
+        "title": ", ".join(titles),
+    }
+
 
 def status_label(status: Any) -> str:
     """Terjemahkan status matching ke label bahasa manusia.
@@ -69,8 +98,7 @@ CERTIPORT_REQUIRED_FIELDS = (
 CERTIPORT_PASS = {"PASS"}
 CERTIPORT_FAIL = {"FAIL"}
 
-FUZZY_THRESHOLD = 85
-FUZZY_STRONG_THRESHOLD = 95
+FUZZY_SUGGESTION_THRESHOLD = 60
 FUZZY_TOP_N = 5
 
 # Pencocokan nama Certiport: kandidat hanya dianggap plausibel bila nama lengkap
@@ -415,8 +443,9 @@ def match_wisuda_to_sitasi(
         else:
             result["name_match"] = "DIFFERENT"
 
-        # Ketentuan: cocok di SITASI hanya bila NIM DAN nama sama.
-        result["sitasi_matched"] = result["name_match"] == "EXACT"
+        # Identitas utama SITASI adalah NIM exact. Nama tetap dibandingkan
+        # sebagai peringatan (name_match), bukan syarat pembatalan.
+        result["sitasi_matched"] = bool(sitasi_records)
 
         # Kelompokkan attempt per ujian (sertifikasi + sub_program)
         exam_groups = _group_sitasi_by_exam(sitasi_records)
@@ -506,6 +535,65 @@ def build_certiport_name_index(
     return dict(index)
 
 
+def build_certiport_identity_index(
+    certiport_rows: list[dict],
+) -> dict[str, list[dict]]:
+    """Indeks identitas Certiport: token nama terurut -> daftar record.
+
+    Hanya dipakai untuk pencocokan identitas yang persis (seluruh token sama),
+    bukan pencocokan sebagian.
+    """
+    index: dict[str, list[dict]] = defaultdict(list)
+    for row in certiport_rows:
+        raw = row.get("full_name_normalized") or row.get("full_name")
+        key = _identity_name_key(raw)
+        if key:
+            index[key].append(row)
+    return dict(index)
+
+
+def _certiport_candidate_summary(
+    candidate: dict,
+    record_limit: int = 5,
+) -> dict:
+    """Ringkasan kandidat untuk audit/UI.
+
+    `reason=exact_identity` berarti identitas dipakai; selain itu kandidat
+    hanya saran dan tidak boleh menjadi bukti validasi.
+    """
+    records = candidate.get("records", [])
+    return {
+        "name": candidate.get("name"),
+        "raw_name": records[0].get("full_name") if records else candidate.get("name"),
+        "score": candidate.get("score"),
+        "matched_words": candidate.get("matched_words"),
+        "reason": candidate.get("reason"),
+        "record_count": len(records),
+        "records": [
+            {
+                "source_row": record.get("source_row"),
+                "full_name": record.get("full_name"),
+                "full_name_normalized": record.get("full_name_normalized"),
+                "nim": normalize_code(record.get("nim")),
+                "program_name": record.get("program_name"),
+                "certification_name": record.get("certification_name"),
+                "score": record.get("score"),
+                "result": _normalize_certiport_result(record.get("result")),
+            }
+            for record in records[:record_limit]
+        ],
+    }
+
+
+def _certiport_nim_conflict(record: dict, wisuda_nim: str | None) -> dict:
+    return {
+        "source_row": record.get("source_row"),
+        "full_name": record.get("full_name"),
+        "wisuda_nim": wisuda_nim,
+        "certiport_nim": normalize_code(record.get("nim")),
+    }
+
+
 def _normalize_certiport_result(result: Any) -> str | None:
     if result is None:
         return None
@@ -586,16 +674,51 @@ def _fuzzy_name_score(target: str, candidate: str) -> int:
     )
 
 
+# Gelar akademik yang lazim menempel pada nama di sumber Excel.
+# Dibuang sebelum perbandingan identitas/fuzzy agar tidak dianggap kata nama.
+_ACADEMIC_DEGREE_PATTERN = re.compile(
+    r"\b(?:S\.?\s*KOM|M\.?\s*KOM|S\.?\s*T|M\.?\s*T|S\.?\s*SI|M\.?\s*SI|"
+    r"S\.?\s*PD|M\.?\s*PD|S\.?\s*KED|M\.?\s*KED|IR|DR|DRS|PROF)\.?\b",
+    re.IGNORECASE,
+)
+
+
+def _strip_academic_degrees(value: Any) -> str:
+    """Hapus gelar akademik dari nama sebelum normalisasi."""
+    text = clean_text(value) or ""
+    return _ACADEMIC_DEGREE_PATTERN.sub(" ", text)
+
+
+def _name_identity_tokens(name: Any) -> list[str]:
+    """Token identitas nama: tanpa gelar, tanpa tanda baca, uppercase."""
+    normalized = normalize_name(_strip_academic_degrees(name)) or ""
+    return [token for token in normalized.split() if token]
+
+
+def _identity_name_key(name: Any) -> str:
+    """Kunci identitas yang tidak bergantung urutan nama."""
+    tokens = _name_identity_tokens(name)
+    return " ".join(sorted(tokens)) if tokens else ""
+
+
+def _names_identity_equal(left: Any, right: Any) -> bool:
+    """Apakah dua nama identik secara token (bukan kecocokan sebagian).
+
+    Urutan kata boleh berbeda dan gelar akademik diabaikan, tetapi seluruh
+    token nama harus sama. "MUHAMMAD ALFARISY AKBAR" != "MUHAMMAD AKBAR".
+    """
+    left_tokens = _name_identity_tokens(left)
+    right_tokens = _name_identity_tokens(right)
+    return bool(left_tokens) and sorted(left_tokens) == sorted(right_tokens)
+
+
 def _name_word_tokens(name: str) -> list[str]:
-    """Pecah nama menjadi token kata, tahan tanda baca/kurung.
+    """Pecah nama menjadi token kata, tahan tanda baca/kurung dan gelar.
 
     Menormalkan ulang (idempoten) sehingga "( DAVID.)" dan "david" sama-sama
     menghasilkan token ["DAVID"]. Nama satu kata tetap satu token.
     """
-    if not name:
-        return []
-    normalized = normalize_name(name) or ""
-    return [token for token in normalized.split() if token]
+    return _name_identity_tokens(name)
 
 
 def _count_matching_name_words(
@@ -625,17 +748,14 @@ def _count_matching_name_words(
 def _find_certiport_candidates_fuzzy(
     target_name: str,
     certiport_index: dict[str, list[dict]],
-    threshold: int = FUZZY_THRESHOLD,
+    threshold: int = FUZZY_SUGGESTION_THRESHOLD,
 ) -> list[dict]:
-    """Cari kandidat Certiport berdasar nama normalized + skor fuzzy per kata.
+    """Cari kandidat Certiport sebagai saran review (bukan identitas).
 
-    Kandidat hanya lolos bila nama berbagi minimal `NAME_MIN_MATCHING_WORDS` kata
-    dengan nama lengkap target. Nama pendek (mis. satu kata) memakai batas
-    min(jumlah kata target, 2) agar nama tunggal yang sah tetap bisa dicocokkan.
-    Kurang dari batas kata → bukan kandidat (mengarah ke DATA_TIDAK_DITEMUKAN).
-
-    Mengembalikan list of {name, score, reason, matched_words, records}
-    diurutkan score descending. Nama identik (score 100) tetap kandidat, bukan auto-valid.
+    Skor tidak hanya memakai kemiripan string, tetapi juga **cakupan token**:
+    token yang cocok dibagi jumlah token maksimum kedua nama. Dengan begitu
+    "MUHAMMAD AKBAR" vs "MUHAMMAD ALFARISY AKBAR" tidak lagi mendapat 100.
+    Kandidat hanya lolos bila berbagi minimal `NAME_MIN_MATCHING_WORDS` kata.
     """
     target_words = _name_word_tokens(target_name)
     if not target_words:
@@ -645,16 +765,27 @@ def _find_certiport_candidates_fuzzy(
 
     candidates: list[dict] = []
     for name, records in certiport_index.items():
-        score = _fuzzy_name_score(target_name, name)
-        if score < threshold:
-            continue
+        base_score = _fuzzy_name_score(target_name, name)
         matched_words = _count_matching_name_words(target_name, name)
         if matched_words < required_words:
             continue
-        reason = "exact_name" if name == target_name else "fuzzy_candidate"
+
+        candidate_words = _name_word_tokens(name)
+        max_words = max(len(target_words), len(candidate_words))
+        coverage = (matched_words / max_words) if max_words else 0.0
+        score = int(min(base_score, round(100 * coverage)))
+        if score < threshold:
+            continue
+
+        reason = (
+            "exact_name" if name == target_name
+            else ("partial_name_candidate" if coverage < 1.0 else "fuzzy_candidate")
+        )
         candidates.append({
             "name": name,
             "score": score,
+            "base_score": base_score,
+            "coverage": round(coverage, 3),
             "reason": reason,
             "matched_words": matched_words,
             "records": records,
@@ -705,6 +836,16 @@ def _cross_validate_exam(
         cert_name = clean_text(rec.get("certification_name")) or ""
 
         if expected_program and prog != expected_program:
+            continue
+
+        if not sitasi_sub:
+            # Skema ringkas tidak lagi menyimpan sub-program. Kecocokan ujian
+            # ditentukan oleh kategori sertifikasi (MOS/MCF) yang sama.
+            cert_category = _map_category_reverse(prog) or normalize_upper(cert_name)
+            if cert_category != normalize_upper(sitasi_sertifikasi):
+                continue
+            matching_certiport.append(rec)
+            exam_match_reasons.append("category_match")
             continue
 
         alias_match, alias_reason = _is_exam_alias_match(sitasi_sub, cert_name)
@@ -790,12 +931,28 @@ def _cross_validate_exam(
     }
 
 
+def _certiport_record_key(rec: dict) -> tuple:
+    """Kunci identitas record Certiport.
+
+    Mode database memakai `id`; mode berkas lokal (tanpa id) memakai kombinasi
+    baris + nama + sertifikasi agar record berbeda tidak saling dianggap sama.
+    """
+    if rec.get("id") is not None:
+        return ("id", rec.get("id"))
+    return (
+        "row",
+        rec.get("source_row"),
+        rec.get("full_name"),
+        rec.get("certification_name"),
+        rec.get("result"),
+    )
+
+
 def _build_certiport_only_exam(
     rec: dict,
     certiport_import_id: str | None = None,
-    fuzzy: bool = False,
 ) -> dict:
-    """Bangun entri ujian dari rekaman Certiport yang belum tercatat di data SITASI."""
+    """Bangun entri ujian dari rekaman Certiport exact yang belum ada di SITASI."""
     prog_raw = rec.get("program_name") or ""
     cat = _map_category_reverse(prog_raw) or ("MOS" if "OFFICE" in prog_raw.upper() or "MOS" in prog_raw.upper() else ("MCF" if "FUNDAMENTAL" in prog_raw.upper() or "MCF" in prog_raw.upper() else "OTHER"))
     cert_name = rec.get("certification_name") or ""
@@ -804,9 +961,7 @@ def _build_certiport_only_exam(
     is_pass = result_val in CERTIPORT_PASS
     is_fail = result_val in CERTIPORT_FAIL
 
-    if fuzzy:
-        reason = f"Kandidat fuzzy pada Certiport ({result_val}); belum ada rekaman attempt di data SITASI."
-    elif is_pass:
+    if is_pass:
         reason = "Sertifikasi tercatat di Certiport (PASS), namun belum ada rekaman attempt di data SITASI."
     elif is_fail:
         reason = "Ujian tercatat di Certiport (FAIL), tidak ada rekaman attempt di data SITASI."
@@ -825,9 +980,7 @@ def _build_certiport_only_exam(
         "exam_alias_reason": "certiport_direct_read",
     }]
 
-    if fuzzy:
-        combined = PERLU_VERIFIKASI
-    elif is_pass:
+    if is_pass:
         combined = VALID
     elif is_fail:
         combined = TIDAK_LULUS
@@ -870,6 +1023,7 @@ def match_sitasi_to_certiport(
     tetap dibaca dan dicatat sebagai bukti verifikasi.
     """
     cert_index = build_certiport_name_index(certiport_rows)
+    identity_index = build_certiport_identity_index(certiport_rows)
     results: list[dict] = []
 
     for ws_result in wisuda_sitasi_results:
@@ -895,114 +1049,129 @@ def match_sitasi_to_certiport(
             if n not in search_names:
                 search_names.append(n)
 
-        all_candidates: list[dict] = []
-        seen_names: set[str] = set()
+        # --------------------------------------------------------------
+        # 1. Identitas: hanya seluruh token nama yang sama (exact identity).
+        #    Urutan kata dan gelar boleh berbeda; kecocokan sebagian TIDAK
+        #    pernah dianggap identitas.
+        # --------------------------------------------------------------
+        wisuda_nim = normalize_code(ws_result.get("nim"))
+        exact_candidates: list[dict] = []
+        exact_records: list[dict] = []
+        nim_conflicts: list[dict] = []
+        exact_names_seen: set[str] = set()
+
         for search_name in search_names:
-            candidates = _find_certiport_candidates_fuzzy(search_name, cert_index)
-            for c in candidates:
-                if c["name"] not in seen_names:
-                    all_candidates.append(c)
-                    seen_names.add(c["name"])
+            key = _identity_name_key(search_name)
+            if not key:
+                continue
+            records = identity_index.get(key, [])
+            if not records:
+                continue
+            grouped: dict[str, list[dict]] = defaultdict(list)
+            for record in records:
+                record_name = normalize_name(
+                    record.get("full_name_normalized") or record.get("full_name")
+                ) or ""
+                grouped[record_name].append(record)
+            for record_name, record_group in grouped.items():
+                if record_name in exact_names_seen:
+                    continue
+                exact_names_seen.add(record_name)
+                exact_candidates.append({
+                    "name": record_name,
+                    "score": 100,
+                    "reason": "exact_identity",
+                    "matched_words": len(_name_identity_tokens(search_name)),
+                    "records": record_group,
+                })
 
-        unique_persons = set()
-        all_candidate_records: list[dict] = []
-        for c in all_candidates:
-            # Ambiguity dinilai hanya dari kandidat sangat mirip (>= 95),
-            # sedangkan daftar saran tetap memakai ambang lebih longgar (85).
-            if c["score"] >= FUZZY_STRONG_THRESHOLD:
-                unique_persons.add(c["name"])
-            for rec in c["records"]:
-                all_candidate_records.append(rec)
+        for candidate in exact_candidates:
+            for record in candidate["records"]:
+                record_nim = normalize_code(record.get("nim"))
+                if record_nim and wisuda_nim and record_nim != wisuda_nim:
+                    nim_conflicts.append(_certiport_nim_conflict(record, wisuda_nim))
+                else:
+                    exact_records.append(record)
 
+        # Konflik NIM membuat identitas ambigu: jangan pakai record mana pun
+        # sampai petugas memutuskan.
+        identity_conflict = bool(nim_conflicts) or (
+            bool(exact_candidates) and not exact_records
+        )
+        if identity_conflict:
+            exact_records = []
+
+        # --------------------------------------------------------------
+        # 2. Kandidat fuzzy: hanya saran review, bukan bukti/skor mahasiswa.
+        # --------------------------------------------------------------
+        fuzzy_candidates: list[dict] = []
+        fuzzy_names_seen: set[str] = set()
+        for search_name in search_names:
+            for candidate in _find_certiport_candidates_fuzzy(search_name, cert_index):
+                if candidate["name"] in exact_names_seen:
+                    continue
+                if candidate["name"] not in fuzzy_names_seen:
+                    fuzzy_candidates.append(candidate)
+                    fuzzy_names_seen.add(candidate["name"])
+
+        all_candidates = exact_candidates + fuzzy_candidates
         candidate_summary = [
-            {"name": c["name"], "score": c["score"], "reason": c["reason"], "record_count": len(c["records"])}
-            for c in all_candidates
+            _certiport_candidate_summary(candidate)
+            for candidate in all_candidates
         ]
 
-        if not all_candidates:
-            enriched["certiport_match"] = {
-                "status": DATA_TIDAK_DITEMUKAN,
-                "reason": "Tidak ditemukan kandidat Certiport berdasar nama.",
-                "candidates": [],
-            }
-            if not exams:
-                enriched["overall_status"] = DATA_TIDAK_DITEMUKAN
-                results.append(enriched)
-                continue
-
+        def _certiport_only_validation(reason: str) -> None:
+            """Validasi SITASI saja; kandidat Certiport tidak dipakai."""
             for exam in exams:
                 exam["certiport_validation"] = {
                     "combined_status": _sitasi_only_combined(exam, sitasi_matched),
-                    "certiport_status": DATA_TIDAK_DITEMUKAN,
+                    "certiport_status": PERLU_VERIFIKASI if all_candidates else DATA_TIDAK_DITEMUKAN,
                     "certiport_evidence": [],
-                    "reason": "Tidak ada kandidat Certiport.",
+                    "reason": reason,
                 }
-            enriched["overall_status"] = _compute_combined_overall(exams)
-            results.append(enriched)
-            continue
-
-        if len(unique_persons) > 1:
-            enriched["certiport_match"] = {
-                "status": PERLU_VERIFIKASI,
-                "reason": f"Ditemukan {len(unique_persons)} nama berbeda sebagai kandidat; risiko salah orang.",
-                "candidates": candidate_summary,
-            }
-            for exam in exams:
-                exam["certiport_validation"] = {
-                    "combined_status": PERLU_VERIFIKASI,
-                    "certiport_status": PERLU_VERIFIKASI,
-                    "certiport_evidence": [],
-                    "reason": "Kandidat nama ganda; perlu review manusia.",
-                }
-            enriched["overall_status"] = PERLU_VERIFIKASI
-            results.append(enriched)
-            continue
-
-        exact_names = set(search_names)
-        exact_records = []
-        for c in all_candidates:
-            if c["name"] in exact_names:
-                exact_records.extend(c["records"])
+            enriched["overall_status"] = (
+                _compute_combined_overall(exams)
+                if exams
+                else (PERLU_VERIFIKASI if all_candidates else DATA_TIDAK_DITEMUKAN)
+            )
 
         if not exact_records:
-            enriched["certiport_match"] = {
-                "status": PERLU_VERIFIKASI if not sitasi_matched else "FUZZY_ONLY",
-                "reason": (
-                    "Hanya kandidat fuzzy (bukan exact name); perlu review manusia."
-                    if not sitasi_matched
-                    else "Hanya kandidat Certiport mirip; SITASI sudah cocok (NIM+nama)."
-                ),
-                "candidates": candidate_summary,
-            }
-            if not sitasi_matched:
-                target_records = all_candidate_records
-                matched_cert_ids = set()
-                for exam in exams:
-                    validation = _cross_validate_exam(exam, target_records, sitasi_matched=False)
-                    validation["combined_status"] = PERLU_VERIFIKASI
-                    exam["certiport_validation"] = validation
-                    for ev in validation.get("certiport_evidence", []):
-                        matched_cert_ids.add(ev.get("id"))
-
-                for rec in target_records:
-                    if rec.get("id") not in matched_cert_ids:
-                        matched_cert_ids.add(rec.get("id"))
-                        extra_exam = _build_certiport_only_exam(rec, certiport_import_id, fuzzy=True)
-                        exams.append(extra_exam)
-
-                enriched["overall_status"] = PERLU_VERIFIKASI
+            if identity_conflict:
+                reason = "Nama cocok tetapi NIM sumber berbeda; identitas belum terkonfirmasi."
+                status = PERLU_VERIFIKASI
+            elif fuzzy_candidates:
+                reason = (
+                    "Tidak ada nama yang persis sama. Kandidat fuzzy/mirip hanya "
+                    "saran dan tidak dipakai sebagai bukti validasi."
+                )
+                status = PERLU_VERIFIKASI
             else:
-                # SITASI sudah cocok (NIM+nama) → status SITASI cukup; kandidat mirip hanya saran.
-                for exam in exams:
-                    exam["certiport_validation"] = _cross_validate_exam(exam, [], sitasi_matched=True)
-                enriched["overall_status"] = _compute_combined_overall(exams)
+                reason = "Tidak ditemukan kandidat Certiport berdasar nama."
+                status = DATA_TIDAK_DITEMUKAN
+
+            enriched["certiport_match"] = {
+                "status": status,
+                "reason": reason,
+                "candidates": candidate_summary,
+                "nim_conflicts": nim_conflicts,
+            }
+            _certiport_only_validation(reason)
             results.append(enriched)
             continue
 
+        # --------------------------------------------------------------
+        # 3. Identitas exact terkonfirmasi. Baru pada tahap ini hasil
+        #    sertifikasi Certiport boleh dipakai sebagai bukti.
+        # --------------------------------------------------------------
         enriched["certiport_match"] = {
             "status": "MATCHED",
-            "reason": "Satu kandidat exact name ditemukan.",
+            "reason": (
+                "Nama identitas cocok persis."
+                if not fuzzy_candidates
+                else "Nama identitas cocok persis; ada kandidat mirip lain sebagai saran review."
+            ),
             "candidates": candidate_summary,
+            "nim_conflicts": [],
         }
 
         matched_cert_ids = set()
@@ -1010,13 +1179,13 @@ def match_sitasi_to_certiport(
             validation = _cross_validate_exam(exam, exact_records, sitasi_matched=sitasi_matched)
             exam["certiport_validation"] = validation
             for ev in validation.get("certiport_evidence", []):
-                matched_cert_ids.add(ev.get("id"))
+                matched_cert_ids.add(_certiport_record_key(ev))
 
-        # Baca seluruh record Certiport yang belum ada di SITASI
+        # Baca seluruh record Certiport exact yang belum ada di SITASI.
         for rec in exact_records:
-            if rec.get("id") not in matched_cert_ids:
-                matched_cert_ids.add(rec.get("id"))
-                extra_exam = _build_certiport_only_exam(rec, certiport_import_id, fuzzy=False)
+            if _certiport_record_key(rec) not in matched_cert_ids:
+                matched_cert_ids.add(_certiport_record_key(rec))
+                extra_exam = _build_certiport_only_exam(rec, certiport_import_id)
                 exams.append(extra_exam)
 
         enriched["overall_status"] = _compute_combined_overall(exams)
@@ -1081,6 +1250,8 @@ REASON_CODES = {
     "R12_INCO": "Hasil Certiport INCO/kosong; bukti tidak cukup.",
     "R13_UNKNOWN_STATUS": "Status tidak dikenali; perlu review.",
     "R14_CERTIPORT_ONLY": "Sertifikasi tercatat di Certiport (PASS), namun belum ada rekaman attempt di data SITASI.",
+    "R15_CANDIDATE_ONLY": "Kandidat nama mirip ditemukan, tetapi identitas belum terkonfirmasi; kandidat bukan bukti.",
+    "R16_NIM_CONFLICT": "Nama cocok tetapi NIM sumber berbeda; identitas bertentangan dan wajib review.",
 }
 
 
@@ -1093,6 +1264,14 @@ def _classify_reason_code(certiport_validation: dict, certiport_match: dict | No
         return "R14_CERTIPORT_ONLY"
     if combined == VALID:
         return "R01_VALID"
+    if certiport_match and certiport_match.get("nim_conflicts"):
+        return "R16_NIM_CONFLICT"
+    if (
+        certiport_match
+        and certiport_match.get("status") == PERLU_VERIFIKASI
+        and certiport_match.get("candidates")
+    ):
+        return "R15_CANDIDATE_ONLY"
     if "DRAFT" in reason_text or "draft" in reason_text.lower():
         return "R02_DRAFT_ALIAS"
     if cert_status == DATA_TIDAK_DITEMUKAN:
@@ -1191,7 +1370,7 @@ def _build_program_summary(exams: list[dict]) -> dict[str, dict]:
             certiport_result = cert_ev[0].get("result") if cert_ev else None
 
             exam_details.append({
-                "sub_program": sub_name,
+                "sub_program": sub_name or exam.get("sertifikasi", ""),
                 "exam_status": exam.get("exam_status", ""),
                 "combined_status": combined,
                 "score": effective_score,
@@ -1237,12 +1416,41 @@ def _build_program_summary(exams: list[dict]) -> dict[str, dict]:
     return summary
 
 
+def _format_candidate_review_flag(
+    candidate: dict,
+    certiport_file_name: str | None = None,
+    max_records: int = 3,
+) -> str:
+    """Teks audit kandidat: nama asli, normalisasi, skor, file, baris, status."""
+    records = candidate.get("records", []) or []
+    details: list[str] = []
+    for record in records[:max_records]:
+        label = record.get("certification_name") or record.get("program_name") or "-"
+        result = record.get("result") or "-"
+        score = record.get("score")
+        score_text = "-" if score is None else str(score)
+        file_text = f"{certiport_file_name} " if certiport_file_name else ""
+        row_text = (
+            f"baris #{record['source_row']}"
+            if record.get("source_row") is not None
+            else "baris tidak diketahui"
+        )
+        details.append(f"{label} {result} skor {score_text} ({file_text}{row_text})")
+    suffix = "; " + "; ".join(details) if details else ""
+    return (
+        f"Kandidat {candidate.get('raw_name') or '-'} "
+        f"(normalized: {candidate.get('name') or '-'}), "
+        f"skor nama {candidate.get('score')}, alasan {candidate.get('reason')}{suffix}"
+    )
+
+
 def validate_wisuda_complete(
     wisuda_rows: list[dict],
     sitasi_rows: list[dict],
     certiport_rows: list[dict],
     sitasi_import_id: str | None = None,
     certiport_import_id: str | None = None,
+    certiport_file_name: str | None = None,
 ) -> list[dict]:
     """Pipeline validasi lengkap per baris wisuda: SITASI matching → Certiport cross-validation → program summary.
 
@@ -1284,6 +1492,17 @@ def validate_wisuda_complete(
             continue
 
         certiport_match = row.get("certiport_match", {})
+        mcf_relevant = is_mcf_relevant(row.get("kode_prodi"))
+
+        # MCF hanya relevan untuk prodi tertentu (mis. 31 Informatika, 32 Sistem Informasi).
+        # Untuk prodi lain, jangan bawa exam/evidence MCF ke ringkasan, UI, atau ekspor.
+        if not mcf_relevant:
+            row["exams"] = [
+                exam for exam in row.get("exams", [])
+                if normalize_upper(exam.get("sertifikasi")) != "MCF"
+            ]
+            validated["exams"] = row["exams"]
+
         for exam in row.get("exams", []):
             exam["_certiport_match_ref"] = certiport_match
 
@@ -1291,9 +1510,6 @@ def validate_wisuda_complete(
 
         for exam in row.get("exams", []):
             exam.pop("_certiport_match_ref", None)
-
-        # MCF hanya relevan untuk prodi tertentu (mis. 31 Informatika, 32 Sistem Informasi).
-        mcf_relevant = is_mcf_relevant(row.get("kode_prodi"))
 
         validated["program_summary"] = program_summary
         validated["mos_status"] = program_summary.get("MOS", {}).get("status", DATA_TIDAK_DITEMUKAN)
@@ -1317,6 +1533,16 @@ def validate_wisuda_complete(
                 needs_review = True
                 review_flags.append(f"{prog_name}: perlu review")
 
+        # Kode alasan tingkat baris untuk identitas yang belum pasti, walaupun
+        # tidak ada exam (mis. kandidat parsial tanpa rekaman SITASI).
+        if certiport_match.get("nim_conflicts"):
+            all_reason_codes.append("R16_NIM_CONFLICT")
+        elif (
+            certiport_match.get("status") == PERLU_VERIFIKASI
+            and certiport_match.get("candidates")
+        ):
+            all_reason_codes.append("R15_CANDIDATE_ONLY")
+
         relevant_statuses: list[str] = []
         for prog_name, prog_data in program_summary.items():
             if prog_name == "MCF" and not mcf_relevant:
@@ -1339,20 +1565,37 @@ def validate_wisuda_complete(
             review_flags.append("Sertifikasi terbaca dari Certiport (tanpa rekaman SITASI)")
 
         cm_status = certiport_match.get("status", "")
+        candidates = certiport_match.get("candidates", []) or []
         if cm_status == PERLU_VERIFIKASI:
             needs_review = True
-            cm_reason = certiport_match.get("reason", "")
-            if "nama" in cm_reason.lower() or "salah orang" in cm_reason.lower():
-                review_flags.append("Kandidat Certiport nama ganda")
-            elif "fuzzy" in cm_reason.lower() or "mirip" in cm_reason.lower():
-                review_flags.append("Kandidat Certiport hanya mirip (fuzzy)")
-            candidates = certiport_match.get("candidates", []) or []
-            if candidates:
-                top = candidates[:FUZZY_TOP_N]
+            review_flags.append(
+                certiport_match.get("reason")
+                or "Identitas Certiport belum terkonfirmasi; wajib review manual."
+            )
+            for conflict in (certiport_match.get("nim_conflicts") or [])[:FUZZY_TOP_N]:
                 review_flags.append(
-                    "Kandidat Certiport mirip: "
-                    + ", ".join(f"{c.get('name')} ({c.get('score')})" for c in top)
+                    f"Konflik NIM: Wisuda {conflict.get('wisuda_nim')} vs Certiport "
+                    f"{conflict.get('certiport_nim')} pada baris "
+                    f"#{conflict.get('source_row')} ({conflict.get('full_name')})"
                 )
+            for candidate in candidates[:FUZZY_TOP_N]:
+                review_flags.append(
+                    _format_candidate_review_flag(candidate, certiport_file_name)
+                )
+        elif cm_status == "MATCHED":
+            fuzzy_only = [
+                candidate for candidate in candidates
+                if candidate.get("reason") != "exact_identity"
+            ]
+            if fuzzy_only:
+                needs_review = True
+                review_flags.append(
+                    "Identitas dipilih dari nama persis; kandidat mirip lain hanya saran review."
+                )
+                for candidate in fuzzy_only[:FUZZY_TOP_N]:
+                    review_flags.append(
+                        _format_candidate_review_flag(candidate, certiport_file_name)
+                    )
 
         validated["reason_codes"] = sorted(set(all_reason_codes))
         validated["needs_review"] = needs_review

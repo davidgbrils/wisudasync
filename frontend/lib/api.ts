@@ -221,7 +221,8 @@ export async function submitReviewResult(
   sessionId: string,
   resultId: string,
   decision: string,
-  note: string
+  note: string,
+  targetProgram?: string
 ): Promise<{ success: boolean; data: Record<string, unknown> }> {
   let response: Response;
   try {
@@ -231,7 +232,11 @@ export async function submitReviewResult(
         ...(await authorizedHeaders()),
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ decision, note }),
+      body: JSON.stringify({
+        decision,
+        note,
+        target_program: targetProgram || undefined,
+      }),
     });
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("Sesi login")) throw error;
@@ -245,7 +250,7 @@ export async function submitReviewResult(
   return await response.json();
 }
 
-export async function downloadSyncExport(sessionId: string, mode: "draft" | "final" = "draft"): Promise<Blob> {
+export async function downloadSyncExport(sessionId: string, mode: "draft" | "final" = "final"): Promise<Blob> {
   const response = await fetch(`${API_URL}/sync/${sessionId}/export?mode=${mode}`, {
     headers: await authorizedHeaders(),
   });

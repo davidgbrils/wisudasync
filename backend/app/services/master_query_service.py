@@ -101,7 +101,8 @@ def list_certiport(
     if search_name:
         query = query.ilike("full_name_normalized", f"%{search_name.strip().upper()}%")
     if program_name:
-        query = query.ilike("program_name", f"%{program_name.strip()}%")
+        term = program_name.strip()
+        query = query.or_(f"program_name.ilike.%{term}%,certification_name.ilike.%{term}%")
     if result:
         query = query.eq("result", result.strip().upper())
 

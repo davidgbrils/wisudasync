@@ -165,7 +165,7 @@ function renderSourceScores(programData: unknown) {
 
 /**
  * Tampilkan kolom Title Microsoft berdasarkan status kelulusan MOS/MCF.
- * Per ADR-003 dan ADR-006: format draft sementara — belum disahkan.
+ * Format disetujui 2026-10-23: "MOS", "MCF", atau "MOS, MCF".
  */
 function renderTitleMicrosoft(
   mosStatus: string | null | undefined,
@@ -177,26 +177,14 @@ function renderTitleMicrosoft(
   const mcfRelevant = isMcfRelevant(kodeProdi);
 
   if (!mosLulus && (!mcfRelevant || !mcfLulus)) {
-    if (mosStatus?.toUpperCase() === "DATA_TIDAK_DITEMUKAN") {
-      return <span className="text-[11px] text-[#66736F] italic">(data tidak ditemukan)</span>;
-    }
-    if (mosStatus?.toUpperCase() === "PERLU_VERIFIKASI") {
-      return <span className="text-[11px] text-amber-800 italic">(perlu verifikasi)</span>;
-    }
     return <span className="text-[11px] text-[#66736F]">—</span>;
   }
 
   const titles: string[] = [];
-  if (mosLulus) titles.push("Microsoft Office Specialist");
-  if (mcfRelevant && mcfLulus) titles.push("Microsoft Certified: Fundamentals");
+  if (mosLulus) titles.push("MOS");
+  if (mcfRelevant && mcfLulus) titles.push("MCF");
 
-  return (
-    <div className="space-y-0.5">
-      {titles.map((t, i) => (
-        <div key={i} className="text-[11px] font-medium text-[#172321]">{t}</div>
-      ))}
-    </div>
-  );
+  return <span className="text-[11px] font-medium text-[#172321]">{titles.join(", ")}</span>;
 }
 
 
@@ -228,7 +216,8 @@ export default function SyncResultDetailPage({
   const [downloading, setDownloading] = useState(false);
   const [exportError, setExportError] = useState("");
 
-  const [reviewDecision, setReviewDecision] = useState<string>("TUNDA_VERIFIKASI");
+  const [reviewDecision, setReviewDecision] = useState<string>("KONFIRMASI_COCOK");
+  const [reviewTarget, setReviewTarget] = useState<string>("ALL");
   const [reviewNote, setReviewNote] = useState<string>("");
   const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewError, setReviewError] = useState("");
@@ -271,13 +260,24 @@ export default function SyncResultDetailPage({
 
   async function openDetailModal(item: SyncResultItem) {
     setLoadingDetail(true);
-    setReviewDecision("TUNDA_VERIFIKASI");
-    setReviewNote("");
+    // Tentukan pilihan awal review yang sesuai dengan kondisi mahasiswa
+    if (item.validation_status === "VALID") {
+      setReviewDecision("KONFIRMASI_COCOK");
+    } else if (item.validation_status === "TIDAK_LULUS") {
+      setReviewDecision("TIDAK_COCOK");
+    } else {
+      setReviewDecision("KONFIRMASI_COCOK");
+    }
+    setReviewTarget("ALL");
+    setReviewNote(item.review_note?.replace(/^\[[A-Z_]+\]\s*/, "") || "");
     setReviewError("");
     setReviewSuccess("");
     try {
       const detail = await getSyncResultDetail(sessionId, item.id);
       setSelectedResult(detail.data);
+      if (detail.data.review_note && !item.review_note) {
+        setReviewNote(detail.data.review_note.replace(/^\[[A-Z_]+\]\s*/, ""));
+      }
     } catch {
       setSelectedResult({
         ...item,
@@ -305,29 +305,59 @@ export default function SyncResultDetailPage({
         sessionId,
         selectedResult.id,
         reviewDecision,
-        reviewNote.trim()
+        reviewNote.trim(),
+        reviewTarget
       );
       setReviewSuccess("Keputusan review berhasil disimpan.");
 
-      // Refresh detail data
-      const updatedDetail = await getSyncResultDetail(sessionId, selectedResult.id);
-      setSelectedResult(updatedDetail.data);
-
-      // Update parent list state
-      setResults((prev) =>
-        prev.map((r) =>
-          r.id === selectedResult.id
+      // Segarkan data detail dan perbarui status baris tabel secara sinkron
+      try {
+        const updatedDetail = await getSyncResultDetail(sessionId, selectedResult.id);
+        setSelectedResult(updatedDetail.data);
+        setResults((prev) =>
+          prev.map((r) =>
+            r.id === selectedResult.id
+              ? {
+                  ...r,
+                  ...updatedDetail.data,
+                }
+              : r
+          )
+        );
+      } catch {
+        const newStatus = (res.data?.new_status as string) || selectedResult.validation_status;
+        const newMos = (res.data?.mos_status as string) || selectedResult.mos_status;
+        const newMcf = (res.data?.mcf_status as string) || selectedResult.mcf_status;
+        const noteWithPrefix = `[${reviewDecision}] ${reviewNote.trim()}`;
+        setSelectedResult((prev) =>
+          prev
             ? {
-                ...r,
-                validation_status: (res.data.new_status as string) || r.validation_status,
-                review_note: `[${reviewDecision}] ${reviewNote.trim()}`,
+                ...prev,
+                validation_status: newStatus,
+                mos_status: newMos,
+                mcf_status: newMcf,
+                review_note: noteWithPrefix,
                 needs_review: reviewDecision !== "KONFIRMASI_COCOK",
               }
-            : r
-        )
-      );
+            : null
+        );
+        setResults((prev) =>
+          prev.map((r) =>
+            r.id === selectedResult.id
+              ? {
+                  ...r,
+                  validation_status: newStatus,
+                  mos_status: newMos,
+                  mcf_status: newMcf,
+                  review_note: noteWithPrefix,
+                  needs_review: reviewDecision !== "KONFIRMASI_COCOK",
+                }
+              : r
+          )
+        );
+      }
 
-      // Refresh session statistics
+      // Refresh statistik sesi pada kartu ringkasan
       getSyncSession(sessionId).then((s) => setSession(s.data)).catch(() => {});
     } catch (cause) {
       setReviewError(cause instanceof Error ? cause.message : "Gagal menyimpan keputusan review.");
@@ -342,22 +372,22 @@ export default function SyncResultDetailPage({
     setActiveSearch(searchQuery.trim());
   }
 
-  async function handleDownloadDraft() {
+  async function handleDownload(mode: "final" | "draft") {
     setDownloading(true);
     setExportError("");
     try {
-      const blob = await downloadSyncExport(sessionId, "draft");
+      const blob = await downloadSyncExport(sessionId, mode);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       const baseName = (session?.file_name || sessionId.slice(0, 8)).replace(/\.xlsx$/i, "");
-      a.download = `wisuda_sync_draft_${baseName}.xlsx`;
+      a.download = `wisuda_${mode}_${baseName}.xlsx`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (cause) {
-      setExportError(cause instanceof Error ? cause.message : "Gagal mengunduh berkas pratinjau.");
+      setExportError(cause instanceof Error ? cause.message : "Gagal mengunduh berkas hasil.");
     } finally {
       setDownloading(false);
     }
@@ -446,7 +476,7 @@ export default function SyncResultDetailPage({
         <div>
           <h3 className="text-sm sm:text-base font-bold text-[#172321]">Ekspor Berkas Hasil Wisuda</h3>
           <p className="mt-0.5 text-xs text-[#66736F]">
-            Pratinjau DRAFT tersedia untuk validasi internal petugas. Ekspor final resmi dikunci menunggu pengesahan ITCC (ADR-003).
+            Unduh berkas hasil dengan kolom sertifikasi terisi hanya untuk status LULUS. Gunakan pratinjau DRAFT untuk pemeriksaan internal.
           </p>
           {exportError && (
             <p role="alert" className="mt-1.5 text-xs font-medium text-rose-700">{exportError}</p>
@@ -455,22 +485,20 @@ export default function SyncResultDetailPage({
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 shrink-0">
           <button
             type="button"
-            onClick={handleDownloadDraft}
+            onClick={() => handleDownload("final")}
             disabled={downloading}
             className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#0F766E] px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-[#0F4B46] disabled:opacity-50"
           >
-            {downloading ? "Mengunduh…" : "Unduh Pratinjau Excel (DRAFT)"}
+            {downloading ? "Mengunduh…" : "Unduh Excel Final"}
           </button>
-          <div className="relative group">
-            <button
-              type="button"
-              disabled
-              title="Ekspor final diblokir: Menunggu pengesahan keputusan bisnis ITCC (ADR-003, ADR-005, ADR-006, ADR-010, ADR-011). Lihat docs/20_OUTPUT_MAPPING_APPROVAL.md"
-              className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-[#DDE4E1] bg-[#F5F7F6] px-4 py-2 text-xs font-semibold text-[#66736F]/70 cursor-not-allowed"
-            >
-              <span>🔒</span> Unduh Excel Final (Terkunci)
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => handleDownload("draft")}
+            disabled={downloading}
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#DDE4E1] bg-white px-4 py-2 text-xs font-semibold text-[#172321] hover:bg-[#F5F7F6] disabled:opacity-50"
+          >
+            Unduh Pratinjau (DRAFT)
+          </button>
         </div>
       </div>
 
@@ -816,7 +844,8 @@ export default function SyncResultDetailPage({
                           <div className="flex items-center justify-between border-b border-[#DDE4E1]/80 pb-2.5">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-bold text-[#172321]">
-                                {ev.category} · {ev.exam}
+                                {ev.category}
+                                {ev.exam && ev.exam !== ev.category ? ` · ${ev.exam}` : ""}
                               </span>
                               <span className="font-mono text-[11px] text-[#66736F]">
                                 ({ev.match_method || "NIM_EXACT+NAME_CERTIPORT"})
@@ -998,11 +1027,29 @@ export default function SyncResultDetailPage({
                     onChange={(e) => setReviewDecision(e.target.value)}
                     className="w-full rounded-lg border border-[#DDE4E1] bg-white px-3 py-1.5 text-xs text-[#172321] focus:border-[#0F766E] focus:outline-none"
                   >
-                    <option value="TUNDA_VERIFIKASI">TUNDA VERIFIKASI (Perlu periksa dokumen/bukti fisik)</option>
-                    <option value="TIDAK_COCOK">TIDAK COCOK (Bukan orang yang sama / tolak klaim)</option>
                     <option value="KONFIRMASI_COCOK">KONFIRMASI COCOK (Verifikasi identitas sah [Wewenang khusus])</option>
+                    <option value="TIDAK_COCOK">TIDAK COCOK (Bukan orang yang sama / tolak klaim)</option>
+                    <option value="TUNDA_VERIFIKASI">TUNDA VERIFIKASI (Perlu periksa dokumen/bukti fisik)</option>
                   </select>
                 </div>
+
+                {isMcfRelevant(resolveKodeProdiFromNim(selectedResult.nim) || selectedResult.kode_prodi) && (
+                  <div className="space-y-1">
+                    <label htmlFor="review-target" className="text-xs font-medium text-[#172321]">
+                      Target Program Sertifikasi:
+                    </label>
+                    <select
+                      id="review-target"
+                      value={reviewTarget}
+                      onChange={(e) => setReviewTarget(e.target.value)}
+                      className="w-full rounded-lg border border-[#DDE4E1] bg-white px-3 py-1.5 text-xs text-[#172321] focus:border-[#0F766E] focus:outline-none"
+                    >
+                      <option value="ALL">Semua Program (MOS & MCF)</option>
+                      <option value="MOS">Hanya Sertifikasi MOS</option>
+                      <option value="MCF">Hanya Sertifikasi MCF</option>
+                    </select>
+                  </div>
+                )}
 
                 <div className="space-y-1">
                   <label htmlFor="review-note" className="text-xs font-medium text-[#172321]">

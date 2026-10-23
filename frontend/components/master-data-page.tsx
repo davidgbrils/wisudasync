@@ -32,8 +32,8 @@ export default function MasterDataPage({ type, title }: Props) {
 
   const isSitasi = type === "sitasi";
   const columns = isSitasi
-    ? [["nim", "NIM"], ["nama", "Nama"], ["program_studi", "Program Studi"], ["sertifikasi", "Sertifikasi"], ["sub_program", "Sub Program"], ["nilai", "Nilai"], ["status", "Status"]]
-    : [["full_name", "Nama"], ["program_name", "Program"], ["certification_name", "Sertifikasi"], ["score", "Nilai"], ["result", "Hasil"]];
+    ? [["nim", "NIM"], ["nama", "Nama"], ["kode_nim", "Kode NIM"], ["program_studi", "Program Studi"], ["sertifikasi", "Sertifikasi"], ["nilai", "Nilai"], ["status", "Status"]]
+    : [["full_name", "Nama"], ["certification_name", "Sertifikasi"], ["score", "Nilai"], ["result", "Hasil"]];
 
   useEffect(() => {
     let current = true;
@@ -129,7 +129,7 @@ export default function MasterDataPage({ type, title }: Props) {
           <p className="mt-1 text-sm text-[#66736F]">
             {isSitasi
               ? "Master data SITASI terikat pada NIM mahasiswa sebagai kunci pencocokan primer."
-              : "Master data Certiport tidak memiliki NIM; pencocokan menggunakan nama lengkap dan sub-program."}
+              : "Master data Certiport tidak memiliki NIM; pencocokan hanya memakai nama lengkap yang persis sama."}
           </p>
         </div>
         <span className="rounded-full border border-[#DDE4E1] bg-white px-3 py-1 font-mono text-xs font-medium tabular-nums text-[#172321] shadow-sm">
@@ -141,7 +141,7 @@ export default function MasterDataPage({ type, title }: Props) {
         <div className="flex items-start gap-3 rounded-lg border border-sky-200 bg-sky-50/70 p-4 text-xs text-sky-900">
           <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-sky-200 font-bold text-sky-800">i</span>
           <p className="leading-relaxed">
-            <strong className="font-semibold text-sky-950">Aturan Pencocokan Certiport:</strong> Sumber data ini tidak memuat NIM mahasiswa. Sistem menggunakan normalisasi nama lengkap, program, dan hasil kelulusan. Apabila ditemukan nama ganda atau ambigu, sistem akan menandainya sebagai <span className="font-semibold">PERLU VERIFIKASI</span> untuk ditinjau oleh petugas.
+            <strong className="font-semibold text-sky-950">Aturan Pencocokan Certiport:</strong> Sumber data ini tidak memuat NIM mahasiswa. Sistem hanya memakai nama lengkap ternormalisasi yang persis sama; kandidat nama mirip tidak mengisi hasil secara otomatis.
           </p>
         </div>
       )}
@@ -212,7 +212,7 @@ export default function MasterDataPage({ type, title }: Props) {
         ) : (
           <>
             <FilterInput id="filter-certiport-name" label="Nama Kandidat" value={draftFilters.nama} onChange={(value) => updateFilter("nama", value)} placeholder="Nama kandidat..." />
-            <FilterInput id="filter-program" label="Program Ujian" value={draftFilters.program} onChange={(value) => updateFilter("program", value)} placeholder="Microsoft Office Specialist..." />
+            <FilterInput id="filter-program" label="Sertifikasi" value={draftFilters.program} onChange={(value) => updateFilter("program", value)} placeholder="MOS / MCF..." />
             <FilterInput id="filter-result" label="Hasil Ujian" value={draftFilters.result} onChange={(value) => updateFilter("result", value)} placeholder="Pass / Fail..." />
           </>
         )}

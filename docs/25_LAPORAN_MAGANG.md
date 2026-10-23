@@ -112,7 +112,7 @@ Contoh format tabel pengujian fungsional black-box untuk pelaksanaan UAT mendata
 |---|---|---|---|---|---|
 | TC-IMP-01 | Impor data master SITASI | `sitasi_dummy.xlsx` | Unggah melalui UI | Batch COMPLETED dan aktif | Belum diuji |
 | TC-MAT-02 | Verifikasi mahasiswa multi-attempt | Data uji anonim | Proses sinkronisasi | Nilai tertinggi tersimpan | Belum diuji |
-| TC-EXP-02 | Pengamanan ekspor final tanpa izin | Sesi sinkronisasi | Klik ekspor final | Akses ditolak status 403 | Belum diuji |
+| TC-EXP-02 | Ekspor final hanya mengisi LULUS | Sesi sinkronisasi | Klik ekspor final | Kolom terisi `MOS (Lulus)`/`MCF (Lulus)`; status lain kosong | Belum diuji (unit PASS) |
 
 ### 4.5 Bukti tangkapan layar antarmuka
 Seluruh tangkapan layar sistem wajib disensor pada bagian identitas pribadi (NIM dan nama mahasiswa) sebelum dilampirkan dalam berkas laporan akhir.
@@ -142,10 +142,10 @@ Berdasarkan hasil perancangan dan implementasi pada BAB IV, hal yang telah terbu
 Adapun aspek yang belum diuji secara empiris mencakup eksekusi skema basis data pada lingkungan Supabase daring dan pelaksanaan uji penerimaan pengguna (UAT) end-to-end. Oleh sebab itu, status kesiapan sistem dinyatakan belum siap untuk lingkungan produksi langsung.
 
 ### 5.2 Keterbatasan
-Keterbatasan pengembangan saat ini mencakup penggunaan data uji sintetis dalam pengujian otomatis, belum tersedianya lingkungan pangkalan data daring untuk pengujian akses langsung, ketiadaan data acuan historis untuk menghitung metrik akurasi numerik, format pemetaan keluaran final yang masih menunggu persetujuan pimpinan, serta penetapan kebijakan pencadangan dan retensi data yang belum disahkan.
+Keterbatasan pengembangan saat ini mencakup penggunaan data uji sintetis dalam pengujian otomatis, belum tersedianya lingkungan pangkalan data daring untuk pengujian akses langsung, ketiadaan data acuan historis untuk menghitung metrik akurasi numerik, serta penetapan kebijakan pencadangan dan retensi data yang belum disahkan. Pemetaan keluaran final telah disahkan pada 2026-10-23; yang masih terbuka adalah retensi (ADR-007) dan penunjukan reviewer (ADR-009).
 
 ### 5.3 Saran
-Untuk kelanjutan pengembangan sistem, disarankan agar unit kerja menyediakan akses basis data Supabase development yang terisolasi, menyelenggarakan sesi pengujian UAT bersama staf verifikator, meresmikan format baku pemetaan kolom ekspor final, serta mengesahkan prosedur operasional standar mengenai retensi dan pembersihan data wisuda.
+Untuk kelanjutan pengembangan sistem, disarankan agar unit kerja menyediakan akses basis data Supabase development yang terisolasi, menyelenggarakan sesi pengujian UAT bersama staf verifikator, serta mengesahkan prosedur operasional standar mengenai retensi dan pembersihan data wisuda. Format ekspor final telah disahkan pada 2026-10-23; yang masih terbuka adalah kebijakan retensi (ADR-007) dan penunjukan reviewer (ADR-009).
 
 ---
 
@@ -163,7 +163,7 @@ Untuk kelanjutan pengembangan sistem, disarankan agar unit kerja menyediakan aks
 | Penentuan status dan kode aturan (FR-015) | `backend/app/services/matching_service.py` | `tests/test_validation_engine.py` | 22 test PASS |
 | Antrean review dan jejak audit (FR-016) | `backend/app/services/sync_service.py`, `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx` | `tests/test_review.py` | 12 test PASS |
 | Pratinjau dan filter hasil (FR-017) | `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx` | `tests/test_sync_api.py` | 8 test PASS |
-| Ekspor draf dan proteksi final (FR-018) | `backend/app/services/sync_service.py`, `endpoints/sync.py` | `tests/test_export_gate.py` | 6 test PASS (status 403 terkunci) |
+| Ekspor final/draf (FR-018) | `backend/app/services/sync_service.py`, `endpoints/sync.py` | `tests/test_export_gate.py` | 6 test PASS (hanya VALID yang diisi) |
 | Riwayat sesi sinkronisasi (FR-019/020) | `sync_service.py`, `frontend/app/(dashboard)/riwayat/page.tsx` | `tests/test_sync_service.py` | 7 test PASS |
 | Ringkasan operasional dashboard | `frontend/app/(dashboard)/dashboard/page.tsx` | Build dan typecheck | PASS kompilasi Next.js |
 | Penyimpanan sesi dan bukti | `database/migrations/20261003120000_*.sql`, `sync_service.py` | `tests/test_sync_service.py` | 15 test PASS |
@@ -190,13 +190,13 @@ Untuk kelanjutan pengembangan sistem, disarankan agar unit kerja menyediakan aks
 
 | Kode keputusan | Topik kebijakan | Kebutuhan konfirmasi institusi |
 |---|---|---|
-| ADR-003 | Format kolom Sertifikasi MOS dan MCF | Pemilihan aturan penulisan pada draf ekspor final |
-| ADR-005 | Standarisasi ekuivalensi sub-ujian | Daftar alias sertifikasi yang diakui resmi |
-| ADR-006 | Kriteria pengisian kolom Title Microsoft | Contoh pemetaan keluaran untuk tiap variasi nilai |
+| ADR-003 | Format kolom Sertifikasi MOS dan MCF | **DISETUJUI 2026-10-23:** `MOS (Lulus)`/`MCF (Lulus)` |
+| ADR-005 | Standarisasi ekuivalensi sub-ujian | Disetujui; skema ringkas memakai kategori MOS/MCF |
+| ADR-006 | Kriteria pengisian kolom Title Microsoft | **DISETUJUI 2026-10-23:** `MOS`, `MCF`, `MOS, MCF` |
 | ADR-007 | Prosedur retensi dan backup berkas | Masa penyimpanan data dan kewenangan penghapusan |
 | ADR-009 | Hak akses staf peninjau review | Penetapan daftar akun petugas verifikator resmi |
-| ADR-010 | Penanganan sel wisuda terisi | Kebijakan penimpaan data yang sudah memiliki nilai |
-| ADR-011 | Standar kelulusan per program studi | Penentuan kewajiban sertifikasi per prodi |
+| ADR-010 | Penanganan sel wisuda terisi | **DISETUJUI 2026-10-23:** berkas baru, non-LULUS kosong |
+| ADR-011 | Standar kelulusan per program studi | **DISETUJUI 2026-10-23:** isi bukti LULUS, bukan syarat wisuda |
 | Keamanan | Rotasi service-role key P0 | Verifikasi langsung bersama pemilik proyek |
 | Infrastruktur | Akses Supabase development berizin | Penyediaan basis data uji terisolasi |
 

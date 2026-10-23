@@ -32,6 +32,7 @@ router = APIRouter(prefix="/sync", tags=["Sinkronisasi"], dependencies=[Depends(
 class ReviewDecisionRequest(BaseModel):
     decision: str = Field(..., description="Keputusan review: KONFIRMASI_COCOK, TIDAK_COCOK, atau TUNDA_VERIFIKASI")
     note: str = Field(..., min_length=1, description="Catatan penjelasan wajib dari reviewer")
+    target_program: str | None = Field(default=None, description="Target sertifikasi: ALL, MOS, atau MCF")
 
 
 @router.post("/validate")
@@ -171,6 +172,7 @@ def review_sync_result(
             result_id=result_id,
             decision=payload.decision,
             note=payload.note,
+            target_program=payload.target_program,
             user_id=current_user.user_id,
             user_name=current_user.display_name,
             user_role=current_user.role,
@@ -193,7 +195,7 @@ def review_sync_result(
 @router.get("/{session_id}/export")
 def export_sync_workbook(
     session_id: str,
-    mode: str = Query(default="draft", description="Mode ekspor: 'draft' (pratinjau berlabel) atau 'final' (resmi)"),
+    mode: str = Query(default="final", description="Mode ekspor: 'final' (isi LULUS saja) atau 'draft' (pratinjau berlabel)"),
 ):
     """Ekspor workbook hasil sinkronisasi dengan perlindungan gate keputusan bisnis ADR."""
     try:

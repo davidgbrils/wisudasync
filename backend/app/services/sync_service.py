@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any, BinaryIO
+import copy
 import uuid
 
 from openpyxl import Workbook
@@ -18,10 +19,11 @@ from app.services.matching_service import (
     VALID,
     fetch_active_certiport_rows,
     fetch_active_sitasi_rows,
+    build_wisuda_fill_values,
     validate_wisuda_complete,
 )
 from app.services.wisuda_validation_service import parse_wisuda_for_sync
-from app.core.prodi import resolve_kode_prodi, resolve_program_studi
+from app.core.prodi import is_mcf_relevant, resolve_kode_prodi, resolve_program_studi
 
 
 class SyncBatchMissingError(ValueError):
@@ -50,7 +52,28 @@ class ExportBlockedByPolicyError(PermissionError):
 
 ALLOWED_REVIEW_DECISIONS = ("KONFIRMASI_COCOK", "TIDAK_COCOK", "TUNDA_VERIFIKASI")
 ADR_009_REVIEWER_POLICY_APPROVED = False  # ADR-009 berstatus TERBUKA per docs/14_DECISIONS.md
-ADR_OUTPUT_MAPPING_APPROVED = False  # ADR-003, 005, 006, 010, 011 berstatus TERBUKA per docs/20_OUTPUT_MAPPING_APPROVAL.md
+# Disetujui pemilik project 2026-10-23: isi kolom hanya untuk status LULUS,
+# format "MOS (Lulus)"/"MCF (Lulus)", Title "MOS"/"MCF", berkas keluaran baru.
+ADR_OUTPUT_MAPPING_APPROVED = True
+
+
+def _get_import_file_name(supabase: Client, import_id: str | None) -> str | None:
+    """Ambil nama file batch aktif untuk jejak audit kandidat."""
+    if not import_id:
+        return None
+    try:
+        response = (
+            supabase.table("data_imports")
+            .select("id,file_name")
+            .eq("id", import_id)
+            .limit(1)
+            .execute()
+        )
+        if response.data:
+            return response.data[0].get("file_name")
+    except Exception:
+        pass
+    return None
 
 
 def create_and_execute_sync(
@@ -117,6 +140,7 @@ def create_and_execute_sync(
             certiport_rows,
             sitasi_import_id=sitasi_import_id,
             certiport_import_id=certiport_import_id,
+            certiport_file_name=_get_import_file_name(supabase, certiport_import_id),
         )
 
         results_to_insert: list[dict] = []
@@ -159,6 +183,16 @@ def create_and_execute_sync(
             kode_prodi_val = resolve_kode_prodi(nim_val, r.get("kode_prodi"))
             prodi_val = resolve_program_studi(kode_prodi_val, r.get("program_studi"))
 
+            certiport_match = r.get("certiport_match", {}) or {}
+            if r.get("name_match"):
+                name_match_type = r.get("name_match")
+            elif certiport_match.get("status") == "MATCHED":
+                name_match_type = "CERTIPORT_EXACT"
+            elif certiport_match.get("status") == PERLU_VERIFIKASI:
+                name_match_type = "CERTIPORT_CANDIDATE_ONLY"
+            else:
+                name_match_type = "TIDAK_ADA_IDENTITAS"
+
             results_to_insert.append({
                 "id": result_id,
                 "sync_session_id": session_id,
@@ -168,7 +202,7 @@ def create_and_execute_sync(
                 "kode_prodi": kode_prodi_val,
                 "program_studi": prodi_val,
                 "nama_sitasi": nama_sitasi,
-                "name_match_type": r.get("name_match"),
+                "name_match_type": name_match_type,
                 "mos_status": r.get("mos_status"),
                 "mcf_status": r.get("mcf_status"),
                 "mos_programs": mos_programs,
@@ -181,7 +215,7 @@ def create_and_execute_sync(
 
             for exam in exams:
                 cat = exam.get("sertifikasi")
-                sub = exam.get("sub_program")
+                sub = exam.get("sub_program") or cat
                 cv = exam.get("certiport_validation", {})
                 e_status = cv.get("combined_status", exam.get("exam_status"))
                 e_reason = cv.get("reason", exam.get("reason", ""))
@@ -592,6 +626,7 @@ def submit_review(
     result_id: str,
     decision: str,
     note: str,
+    target_program: str | None = None,
     user_id: str | None = None,
     user_name: str | None = None,
     user_role: str = "admin",
@@ -606,6 +641,8 @@ def submit_review(
       (mode read-only / tunda verifikasi) untuk mencegah status VALID tanpa izin institusi.
     - Review bersifat append-only di review_audit; bukti asli di sync_evidence TIDAK dihapus.
     - Review ganda mencatat status sebelumnya dan status baru secara berurutan.
+    - Memperbarui validation_status, mos_status, mcf_status, mos_programs, mcf_programs,
+      serta status sub-ujian evidence yang relevan sehingga tampilan tabel, modal, dan berkas ekspor sinkron.
     """
     decision_clean = decision.strip().upper() if decision else ""
     if decision_clean not in ALLOWED_REVIEW_DECISIONS:
@@ -638,15 +675,76 @@ def submit_review(
         raise SyncSessionNotFoundError("Hasil sinkronisasi tidak ditemukan.")
 
     current_result = res_resp.data[0]
-    previous_status = current_result.get("validation_status", "PERLU_VERIFIKASI")
+    previous_status = current_result.get("validation_status", PERLU_VERIFIKASI)
+
+    target_clean = (target_program or "ALL").strip().upper()
+    current_mos = current_result.get("mos_status")
+    current_mcf = current_result.get("mcf_status")
+
+    mos_prog = (
+        copy.deepcopy(current_result.get("mos_programs"))
+        if isinstance(current_result.get("mos_programs"), dict)
+        else None
+    )
+    mcf_prog = (
+        copy.deepcopy(current_result.get("mcf_programs"))
+        if isinstance(current_result.get("mcf_programs"), dict)
+        else None
+    )
+
+    kode_prodi = current_result.get("kode_prodi") or resolve_kode_prodi(current_result.get("nim"))
+    mcf_rel = is_mcf_relevant(kode_prodi)
+
+    new_mos_status = current_mos
+    new_mcf_status = current_mcf
 
     if decision_clean == "KONFIRMASI_COCOK":
+        if target_clean in ("ALL", "MOS") and current_mos == PERLU_VERIFIKASI:
+            new_mos_status = VALID
+            if mos_prog:
+                mos_prog["status"] = VALID
+                mos_prog["needs_review"] = False
+        if target_clean in ("ALL", "MCF") and current_mcf == PERLU_VERIFIKASI:
+            new_mcf_status = VALID
+            if mcf_prog:
+                mcf_prog["status"] = VALID
+                mcf_prog["needs_review"] = False
+
+    elif decision_clean == "TIDAK_COCOK":
+        if target_clean in ("ALL", "MOS") and current_mos == PERLU_VERIFIKASI:
+            new_mos_status = TIDAK_LULUS
+            if mos_prog:
+                mos_prog["status"] = TIDAK_LULUS
+                mos_prog["needs_review"] = False
+        if target_clean in ("ALL", "MCF") and current_mcf == PERLU_VERIFIKASI:
+            new_mcf_status = TIDAK_LULUS
+            if mcf_prog:
+                mcf_prog["status"] = TIDAK_LULUS
+                mcf_prog["needs_review"] = False
+
+    elif decision_clean == "TUNDA_VERIFIKASI":
+        # Tunda verifikasi tetap mempertahankan status PERLU_VERIFIKASI
+        pass
+
+    # Evaluasi status keseluruhan (validation_status)
+    relevant_statuses = [new_mos_status] if new_mos_status else []
+    if mcf_rel and new_mcf_status:
+        relevant_statuses.append(new_mcf_status)
+
+    if PERLU_VERIFIKASI in relevant_statuses or decision_clean == "TUNDA_VERIFIKASI":
+        new_status = PERLU_VERIFIKASI
+        needs_review = True
+    elif decision_clean == "KONFIRMASI_COCOK":
         new_status = VALID
         needs_review = False
     elif decision_clean == "TIDAK_COCOK":
-        new_status = TIDAK_LULUS
-        needs_review = False
-    else:  # TUNDA_VERIFIKASI
+        if any(s == VALID for s in relevant_statuses):
+            new_status = VALID
+            needs_review = False
+        else:
+            new_status = TIDAK_LULUS
+            needs_review = False
+    else:
         new_status = PERLU_VERIFIKASI
         needs_review = True
 
@@ -666,11 +764,35 @@ def submit_review(
     }
     supabase.table("review_audit").insert(audit_entry).execute()
 
-    supabase.table("sync_results").update({
+    update_payload: dict[str, Any] = {
         "validation_status": new_status,
+        "mos_status": new_mos_status,
+        "mcf_status": new_mcf_status,
         "needs_review": needs_review,
         "review_note": f"[{decision_clean}] {note_clean}",
-    }).eq("id", result_id).execute()
+    }
+    if mos_prog is not None:
+        update_payload["mos_programs"] = mos_prog
+    if mcf_prog is not None:
+        update_payload["mcf_programs"] = mcf_prog
+
+    supabase.table("sync_results").update(update_payload).eq("id", result_id).execute()
+
+    # Perbarui evidence_status pada sync_evidence untuk sub-ujian yang bersesuaian
+    if decision_clean in ("KONFIRMASI_COCOK", "TIDAK_COCOK"):
+        evidence_new_status = VALID if decision_clean == "KONFIRMASI_COCOK" else TIDAK_LULUS
+        try:
+            ev_query = (
+                supabase.table("sync_evidence")
+                .update({"evidence_status": evidence_new_status})
+                .eq("result_id", result_id)
+                .eq("evidence_status", PERLU_VERIFIKASI)
+            )
+            if target_clean in ("MOS", "MCF"):
+                ev_query = ev_query.eq("category", target_clean)
+            ev_query.execute()
+        except Exception:
+            pass
 
     # Recalculate session totals
     all_res = (
@@ -697,6 +819,9 @@ def submit_review(
         "note": note_clean,
         "previous_status": previous_status,
         "new_status": new_status,
+        "mos_status": new_mos_status,
+        "mcf_status": new_mcf_status,
+        "needs_review": needs_review,
         "audit_id": audit_id,
         "created_at": now_iso,
     }
@@ -705,26 +830,23 @@ def submit_review(
 def generate_sync_export_workbook(
     supabase: Client,
     session_id: str,
-    mode: str = "draft",
+    mode: str = "final",
 ) -> BytesIO:
-    """Hasilkan berkas export workbook Wisuda dengan perlindungan gate keputusan bisnis.
+    """Hasilkan workbook Wisuda dengan kolom sertifikasi terisi.
 
-    Aturan ADR-003, ADR-005, ADR-006, ADR-010, ADR-011:
-    - Mode 'final' DIBLOKIR selama kebijakan output mapping belum disahkan tertulis oleh ITCC.
-    - Mode 'draft' menghasilkan berkas pratinjau yang aman:
-      - Memuat label eksplisit '[DRAFT - PRATINJAU BELUM DISAHKAN]'.
-      - Menyertakan lembar audit sesi terpisah dengan catatan peringatan administratif.
-      - Menjaga keutuhan urutan baris sumber dan nilai mahasiswa.
+    Aturan yang disetujui 2026-10-23:
+    - Hanya status VALID (LULUS) yang mengisi sel.
+    - Format: "MOS (Lulus)" / "MCF (Lulus)".
+    - Title Microsoft: "MOS", "MCF", atau "MOS, MCF".
+    - Sel yang tidak lulus dibiarkan kosong.
+    Mode 'draft' tetap tersedia sebagai pratinjau berlabel.
     """
-    mode_clean = mode.strip().lower() if mode else "draft"
+    mode_clean = mode.strip().lower() if mode else "final"
 
-    if mode_clean == "final":
-        if not ADR_OUTPUT_MAPPING_APPROVED:
-            raise ExportBlockedByPolicyError(
-                "Ekspor final diblokir: Menunggu pengesahan keputusan bisnis ITCC "
-                "(ADR-003, ADR-005, ADR-006, ADR-010, ADR-011). "
-                "Silakan gunakan ekspor pratinjau DRAFT. Lihat docs/20_OUTPUT_MAPPING_APPROVAL.md."
-            )
+    if mode_clean == "final" and not ADR_OUTPUT_MAPPING_APPROVED:
+        raise ExportBlockedByPolicyError(
+            "Ekspor final diblokir: menunggu pengesahan keputusan bisnis ITCC."
+        )
 
     session = get_sync_session(supabase, session_id)
 
@@ -737,13 +859,13 @@ def generate_sync_export_workbook(
     )
     results = res_resp.data or []
 
+    is_draft = mode_clean == "draft"
+    prefix = "[DRAFT] " if is_draft else ""
+
     wb = Workbook()
-
-    # Sheet 1: Pratinjau Wisuda DRAFT
     ws_wisuda = wb.active
-    ws_wisuda.title = "Wisuda (DRAFT Preview)"
+    ws_wisuda.title = "Wisuda (DRAFT)" if is_draft else "Wisuda"
 
-    draft_notice_fill = PatternFill(start_color="FFFBEB", end_color="FFFBEB", fill_type="solid")
     header_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
     bold_font = Font(bold=True)
 
@@ -753,11 +875,9 @@ def generate_sync_export_workbook(
         "Program Studi",
         "NIM",
         "Nama",
-        "Sertifikasi MOS [DRAFT]",
-        "Sertifikasi MCF [DRAFT]",
-        "Title Microsoft [DRAFT]",
-        "Status Validasi",
-        "Catatan Review",
+        "Sertifikasi MOS",
+        "Sertifikasi MCF",
+        "Title Microsoft",
     ]
     ws_wisuda.append(headers)
     for col_num in range(1, len(headers) + 1):
@@ -766,70 +886,50 @@ def generate_sync_export_workbook(
         cell.fill = header_fill
 
     for idx, r in enumerate(results, start=1):
-        mos_status = r.get("mos_status")
-        mcf_status = r.get("mcf_status")
-        val_status = r.get("validation_status", "")
-
-        # Format DRAFT sementara per ADR-003
-        if mos_status == VALID:
-            mos_text = "[DRAFT] MOS (Lulus)"
-        elif mos_status:
-            mos_text = f"[DRAFT] {mos_status}"
-        else:
-            mos_text = "—"
-
-        if mcf_status == VALID:
-            mcf_text = "[DRAFT] MCF (Lulus)"
-        elif mcf_status:
-            mcf_text = f"[DRAFT] {mcf_status}"
-        else:
-            mcf_text = "—"
-
-        title_text = "[DRAFT] MOS" if mos_status == VALID else ("—" if not mcf_status == VALID else "[DRAFT] MCF")
-
+        fill = build_wisuda_fill_values(r.get("mos_status"), r.get("mcf_status"))
         nim_val = r.get("nim", "")
         kode_prodi_val = r.get("kode_prodi") or resolve_kode_prodi(nim_val)
         prodi_val = r.get("program_studi") or resolve_program_studi(kode_prodi_val)
 
-        row_values = [
-            idx,
-            kode_prodi_val,
-            prodi_val,
-            nim_val,
-            r.get("nama_wisuda", ""),
-            mos_text,
-            mcf_text,
-            title_text,
-            val_status,
-            r.get("review_note") or "",
-        ]
-        ws_wisuda.append(row_values)
-        if val_status != VALID:
-            for c_idx in range(6, 9):
-                ws_wisuda.cell(row=idx + 1, column=c_idx).fill = draft_notice_fill
+        ws_wisuda.append(
+            [
+                idx,
+                kode_prodi_val,
+                prodi_val,
+                nim_val,
+                r.get("nama_wisuda", ""),
+                f"{prefix}{fill['mos']}" if fill["mos"] else "",
+                f"{prefix}{fill['mcf']}" if fill["mcf"] else "",
+                f"{prefix}{fill['title']}" if fill["title"] else "",
+            ]
+        )
 
-    # Sheet 2: Ringkasan Sesi & Audit
-    ws_audit = wb.create_sheet(title="Ringkasan & Gate ADR")
+    for col_index, width in enumerate([6, 10, 28, 14, 34, 20, 20, 18], start=1):
+        ws_wisuda.column_dimensions[chr(64 + col_index)].width = width
+    ws_wisuda.freeze_panes = "A2"
+
+    ws_audit = wb.create_sheet(title="Ringkasan")
     ws_audit.append(["PARAMETER", "NILAI"])
     ws_audit.cell(row=1, column=1).font = bold_font
     ws_audit.cell(row=1, column=2).font = bold_font
 
     audit_meta = [
-        ("Status Berkas", "DRAFT - PRATINJAU BELUM DISAHKAN"),
-        ("Dasar Kebijakan", "Menunggu pengesahan docs/20_OUTPUT_MAPPING_APPROVAL.md"),
+        ("Status Berkas", "DRAFT - PRATINJAU" if is_draft else "FINAL"),
         ("Session ID", session.get("id")),
         ("Nama File Asli", session.get("file_name")),
         ("Batch SITASI Terpakai", session.get("sitasi_import_id")),
         ("Batch Certiport Terpakai", session.get("certiport_import_id")),
         ("Total Mahasiswa", session.get("total_rows")),
-        ("Total Valid", session.get("total_valid")),
-        ("Total Perlu Verifikasi", session.get("total_review")),
+        ("Total Lulus", session.get("total_valid")),
+        ("Total Tidak Lulus/Perlu Verifikasi", session.get("total_review")),
         ("Total Tidak Ditemukan", session.get("total_not_found")),
         ("Waktu Sinkronisasi", session.get("created_at")),
-        ("Peringatan", "DILARANG menggunakan berkas ini sebagai acuan resmi wisuda sebelum ditandatangani ITCC."),
+        ("Aturan Isi", "Hanya status LULUS yang mengisi kolom; sel lain kosong."),
     ]
     for param, val in audit_meta:
         ws_audit.append([param, str(val)])
+    ws_audit.column_dimensions["A"].width = 34
+    ws_audit.column_dimensions["B"].width = 60
 
     buf = BytesIO()
     wb.save(buf)

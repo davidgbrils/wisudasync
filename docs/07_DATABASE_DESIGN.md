@@ -142,6 +142,10 @@ Index unik parsial memastikan maksimal satu batch aktif per jenis, bukan memasti
 
 **Tidak boleh** membuat `nim` unique pada SITASI karena riwayat attempt berulang.
 
+**Skema sumber ringkas 2026-10-23 (tanpa perubahan DDL):**
+- SITASI `NIM, Nama, Kode NIM, Program Studi, Sertifikasi, Nilai, Status` dipetakan ke kolom yang sama. `fakultas`, `angkatan`, dan `sub_program` dibiarkan `null`.
+- Certiport `Nama` → `full_name`/`full_name_normalized`; `Sertifikasi` → `certification_name`, dan `program_name` diturunkan (`MOS` → `MICROSOFT OFFICE SPECIALIST`, `MCF` → `MICROSOFT CERTIFIED FUNDAMENTALS`); `Nilai` → `score`; `Status` LULUS/PASS → `PASS`, GAGAL/FAIL → `FAIL`.
+
 ## 4. Fondasi otorisasi dan usulan Phase 5–6
 ### `profiles` — tersedia pada migration Phase 4
 `id` UUID FK `auth.users`, `display_name`, `role`, `is_active`, `created_at`, dan `updated_at`. Role dikelola server/DB dan tidak diambil dari user metadata yang dapat diedit user. RLS deny-by-default mencegah akses browser langsung.

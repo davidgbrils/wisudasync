@@ -2,7 +2,7 @@
 
 **Versi dokumen:** 1.0-draft · **Tanggal:** 30 September 2026  
 **Jenis proyek:** Project magang mahasiswa · **Bahasa:** Indonesia  
-**Status implementasi:** backend & frontend terimplementasi dan lulus 134 test otomatis (fixture) + typecheck + build. **Belum siap production** — migrasi SQL/RLS belum dieksekusi pada Supabase, UAT browser belum dijalankan, ekspor final terkunci.
+**Status implementasi:** backend & frontend terimplementasi dan lulus 165 test otomatis (fixture) + typecheck + build. **Belum siap production** — migrasi SQL/RLS belum dieksekusi pada Supabase dan UAT browser belum dijalankan. Ekspor final aktif dan hanya mengisi status LULUS.
 
 ## Ringkasan
 Sistem web internal untuk membantu petugas ITCC memproses Excel data wisuda, mencocokkannya menggunakan **NIM** ke riwayat SITASI, memvalidasi hasil sertifikasi terhadap ekspor Certiport yang **tidak memiliki NIM**, meninjau kasus ambigu, dan mengekspor Excel dengan kolom sertifikasi. Tidak ada koneksi langsung atau scraping ke website SITASI maupun Certiport dalam MVP; kedua sumber diimpor dari file Excel resmi yang disediakan petugas.

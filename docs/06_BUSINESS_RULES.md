@@ -120,3 +120,28 @@ Revisi ini **menggantikan** ketentuan "VALID butuh SITASI LULUS + Certiport PASS
 2. **Bila tidak cocok di SITASI** → cek Certiport berdasarkan nama. Nama tepat & unik → status dari Certiport (`PASS`→VALID, `FAIL`→TIDAK_LULUS). Nama hanya mirip atau ganda → `PERLU_VERIFIKASI` disertai daftar nama mirip (suku kata/typo).
 3. Tidak ada di SITASI **dan** Certiport → `DATA_TIDAK_DITEMUKAN`. NIM ada di SITASI tetapi nama berbeda dan tidak ada bukti lain → `PERLU_VERIFIKASI` (bukan "tidak ditemukan").
 4. **Kolom MCF** hanya relevan untuk prodi kode `31` (S1 Teknik Informatika) & `32` (S1 Sistem Informasi); di luar itu MCF **tidak dihitung** dan tidak memengaruhi status keseluruhan.
+
+## 12. Aturan ringkas 2026-10-23 (menggantikan aturan yang bertentangan)
+Sumber data kini hanya memuat kolom berguna: SITASI `NIM, Nama, Kode NIM, Program Studi, Sertifikasi, Nilai, Status`; Certiport `Nama, Sertifikasi, Nilai, Status`. Tidak ada lagi kolom sub-program/ujian rinci.
+
+1. **Identitas SITASI:** NIM exact (string) adalah kunci utama. Nama tetap dibandingkan dan dicatat sebagai peringatan, tetapi tidak membatalkan hasil bila NIM sama.
+2. **Identitas Certiport:** hanya **exact normalized name**. Kandidat fuzzy/mirip tidak pernah mengisi otomatis.
+3. **Kategori ujian:** karena tidak ada sub-program, kecocokan ujian ditentukan oleh kategori `MOS`/`MCF` yang sama. `MTCNA` disimpan tetapi tidak mengisi kolom Wisuda.
+4. **Hanya LULUS yang diisi:** kolom `Sertifikasi MOS`, `Sertifikasi MCF`, dan `Title Microsoft` hanya diisi bila status program `VALID` (ada bukti LULUS). Status lain menghasilkan sel **kosong**.
+5. **MCF:** hanya diisi untuk prodi kode `31` dan `32`.
+6. **Format isi:** `MOS (Lulus)` / `MCF (Lulus)`. `Title Microsoft`: `MOS`, `MCF`, atau `MOS, MCF`.
+7. **Berkas keluaran:** dibuat sebagai berkas baru (mis. `hasil_wisuda_terisi.xlsx`) dengan layout `data_wisuda.xlsx` dipertahankan. Berkas asli tidak ditimpa.
+8. **Prioritas exact name:** bila ada nama persis dan kandidat fuzzy lain, nama persis yang dipakai. Risiko dua orang dengan nama lengkap identik tetap dicatat sebagai keterbatasan sumber Certiport (tanpa NIM).
+
+## 13. Pemisahan identitas dan validasi sertifikasi (2026-10-23)
+Kasus regresi: `MUHAMMAD ALFARISY AKBAR` sempat menampilkan `MUHAMMAD AKBAR` sebagai pemilik skor MOS/MCF. Penyebabnya, record kandidat fuzzy dipakai sebagai bukti dan exam.
+
+Aturan yang berlaku:
+1. **Identitas SITASI:** exact NIM. Nama hanya pembanding dan peringatan.
+2. **Identitas Certiport:** hanya **seluruh token nama sama** setelah normalisasi. Urutan kata dan gelar akademik boleh berbeda (`S.Kom`, `M.T`, `Ir`, `Dr`, dan sejenisnya diabaikan). Kecocokan sebagian **tidak pernah** dianggap identitas.
+3. **Skor fuzzy:** memakai cakupan token, bukan hanya kemiripan string. `MUHAMMAD AKBAR` vs `MUHAMMAD ALFARISY AKBAR` menghasilkan skor 67 (`partial_name_candidate`), bukan 100.
+4. **Kandidat fuzzy bukan bukti:** record kandidat tidak boleh masuk `sync_evidence`, tidak boleh menghasilkan exam `certiport_only`, dan tidak boleh memberi skor/status miliknya kepada mahasiswa.
+5. **Status kandidat:** bila tidak ada identitas exact tetapi ada kandidat, hasil `PERLU_VERIFIKASI`; bila tidak ada kandidat sama sekali, `DATA_TIDAK_DITEMUKAN`.
+6. **Konflik NIM:** bila record Certiport menyediakan NIM dan berbeda dari NIM wisuda, identitas dianggap bertentangan (`R16_NIM_CONFLICT`) dan tidak boleh dipakai untuk mengisi.
+7. **Beberapa kandidat:** tidak ada pemilihan kandidat pertama. Semua kandidat ditampilkan dengan nama asli, nama normalisasi, skor, file, baris, status ujian, dan alasan.
+8. **PASS bukan konfirmasi pemilik:** status `PASS` hanya berlaku setelah identitas exact terkonfirmasi. PASS pada kandidat parsial/fuzzy tidak mengisi kolom Wisuda.
