@@ -256,6 +256,25 @@ grant select, insert, update, delete on table public.review_audit to service_rol
 grant usage, select on all sequences in schema public to service_role;
 grant execute on function public.complete_data_import(uuid, integer) to service_role;
 
+-- LEPAS DEPENDENSI FOREIGN KEY KE AUTH.USERS (Bila tabel sudah pernah ada sebelumnya di Supabase)
+alter table if exists public.profiles drop constraint if exists profiles_id_fkey;
+alter table if exists public.profiles drop constraint if exists profiles_role_allowed;
+alter table if exists public.profiles add constraint profiles_role_allowed check (role in ('admin'));
+alter table if exists public.profiles alter column role set default 'admin';
+
+alter table if exists public.data_imports drop constraint if exists data_imports_created_by_fkey;
+alter table if exists public.sync_sessions drop constraint if exists sync_sessions_created_by_fkey;
+alter table if exists public.review_audit drop constraint if exists review_audit_reviewed_by_fkey;
+
+alter table if exists public.sync_results add column if not exists kode_prodi text;
+alter table if exists public.sync_results add column if not exists program_studi text;
+
+drop trigger if exists on_auth_user_created on auth.users;
+drop function if exists public.handle_new_user();
+
+-- Perbarui semua profil lama menjadi 'admin'
+update public.profiles set role = 'admin' where role <> 'admin';
+
 -- PROFIL ADMINISTRATOR DEFAULT (Sistem Admin-Only tanpa batasan registrasi)
 insert into public.profiles (id, display_name, role, is_active)
 values ('00000000-0000-0000-0000-000000000001', 'Administrator ITCC', 'admin', true)
