@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import SidebarNav from "@/components/sidebar-nav";
-import LogoutButton from "@/components/logout-button";
 
 export default function DashboardShell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -43,7 +42,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
     if (path.startsWith("/riwayat")) return "Riwayat Sinkronisasi";
     if (path.startsWith("/sitasi")) return "Master Data SITASI";
     if (path.startsWith("/certiport")) return "Master Data Certiport";
-    return "Ruang Kerja Petugas";
+    return "Ruang Kerja Administrator";
   };
 
   return (
@@ -64,7 +63,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
       >
         {/* Brand Header */}
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-[#DDE4E1] px-5 xl:px-6">
-          <Link href="/dashboard" className="flex items-center gap-2.5 group">
+          <Link href="/sinkronisasi" className="flex items-center gap-2.5 group">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/brand/logo-full.png"
@@ -75,38 +74,35 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
             />
           </Link>
           <span className="rounded-full border border-teal-200 bg-[#ECFAF8] px-2 py-0.5 text-[10px] font-semibold text-[#0F766E]">
-            v1.0
+            Admin
           </span>
         </div>
 
         {/* Navigation Links */}
         <div className="flex-1 overflow-y-auto px-3.5 py-4 xl:px-4">
           <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-[#66736F]">
-            Menu Operasional
+            Menu Utama
           </p>
           <SidebarNav orientation="vertical" />
 
           <div className="mt-6 rounded-xl border border-[#DDE4E1] bg-[#F5F7F6]/80 p-3.5 text-xs">
-            <p className="font-semibold text-[#172321]">Akses Petugas ITCC</p>
+            <p className="font-semibold text-[#172321]">Akses Administrator ITCC</p>
             <p className="mt-1 text-[11px] leading-relaxed text-[#66736F]">
               Pencocokan data wisuda dengan snapshot batch master SITASI & Certiport aktif.
             </p>
           </div>
         </div>
 
-        {/* Footer Sidebar (Profil & Logout) */}
+        {/* Footer Sidebar (Profil Administrator) */}
         <div className="shrink-0 border-t border-[#DDE4E1] bg-[#F5F7F6]/40 p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ECFAF8] font-bold text-[#0F766E] border border-teal-200 text-xs shadow-xs">
-                IT
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-xs font-semibold text-[#172321]">Petugas ITCC</p>
-                <p className="truncate text-[10px] text-[#66736F]">Staff Verifikator</p>
-              </div>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ECFAF8] font-bold text-[#0F766E] border border-teal-200 text-xs shadow-xs">
+              AD
             </div>
-            <LogoutButton variant="compact" />
+            <div className="min-w-0">
+              <p className="truncate text-xs font-semibold text-[#172321]">Administrator ITCC</p>
+              <p className="truncate text-[10px] font-medium text-[#0F766E]">Role: Admin</p>
+            </div>
           </div>
         </div>
       </aside>
@@ -140,7 +136,9 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
         </div>
 
         <div className="flex items-center gap-2">
-          <LogoutButton variant="compact" />
+          <span className="rounded-md border border-teal-200 bg-[#ECFAF8] px-2 py-1 text-xs font-semibold text-[#0F766E]">
+            Admin
+          </span>
         </div>
       </header>
 
@@ -163,7 +161,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
         }`}
       >
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-[#DDE4E1] px-4">
-          <Link href="/dashboard" className="flex items-center" onClick={() => setMobileOpen(false)}>
+          <Link href="/sinkronisasi" className="flex items-center" onClick={() => setMobileOpen(false)}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/brand/logo-full.png"
@@ -191,12 +189,14 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
         </div>
 
         <div className="shrink-0 border-t border-[#DDE4E1] bg-[#F5F7F6]/60 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-semibold text-[#172321]">Petugas ITCC</p>
-              <p className="text-[10px] text-[#66736F]">Staff Verifikator</p>
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#ECFAF8] font-bold text-[#0F766E] border border-teal-200 text-xs shadow-xs">
+              AD
             </div>
-            <LogoutButton variant="compact" />
+            <div>
+              <p className="text-xs font-semibold text-[#172321]">Administrator ITCC</p>
+              <p className="text-[10px] font-medium text-[#0F766E]">Role: Admin</p>
+            </div>
           </div>
         </div>
       </div>

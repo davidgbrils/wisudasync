@@ -89,35 +89,26 @@ def test_validate_requires_nim_and_name_headers_and_flags_empty_sheet():
     assert empty["issues"][0]["code"] == "EMPTY_FILE"
 
 
-def test_validate_endpoint_requires_staff_and_returns_master_sources(monkeypatch):
+def test_validate_endpoint_returns_master_sources(monkeypatch):
     from app.api.v1.endpoints import sync as sync_endpoint
 
     client = TestClient(app)
     data = workbook_bytes(rows=[[1, "55201", "Informatika", "00123", "Anonim", None, None, None]])
-    unauthenticated = client.post(
-        "/api/v1/sync/validate",
-        files={"file": ("wisuda.xlsx", data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-    )
-    assert unauthenticated.status_code == 401
-
-    previous_overrides = app.dependency_overrides.copy()
-    app.dependency_overrides[require_staff] = lambda: object()
     monkeypatch.setattr(sync_endpoint, "get_supabase", lambda: object())
     monkeypatch.setattr(
         sync_endpoint,
         "get_active_import_summary",
         lambda _client, data_type: {"data_type": data_type, "status": "COMPLETED"},
     )
-    try:
-        response = client.post(
-            "/api/v1/sync/validate",
-            files={"file": ("wisuda.xlsx", data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-        )
-    finally:
-        app.dependency_overrides.clear()
-        app.dependency_overrides.update(previous_overrides)
-
+    response = client.post(
+        "/api/v1/sync/validate",
+        files={"file": ("wisuda.xlsx", data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
     assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["active_masters"]["sitasi"]["status"] == "COMPLETED"
+
     result = response.json()["data"]
     assert result["is_valid"] is True
     assert result["student_count"] == 1

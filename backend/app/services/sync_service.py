@@ -347,6 +347,117 @@ def list_sync_results(
     }
 
 
+def _evidence_pass_rank(ev: dict) -> int:
+    """Prioritas tampil saat satu (kategori, sub-ujian) punya bukti ganda.
+
+    0 = ada bukti lulus (ditampilkan), 1 = sisanya (disembunyikan).
+    Tidak mengubah status — hanya memilih tampilan.
+    """
+    if str(ev.get("evidence_status", "")).upper() == VALID:
+        return 0
+    if str(ev.get("certiport_status", "")).upper() == "PASS":
+        return 0
+    if str(ev.get("sitasi_status", "")).upper() == "LULUS":
+        return 0
+    return 1
+
+
+def _normalize_master_certiport_result(value: Any) -> str | None:
+    """Normalkan kolom `result` master Certiport menjadi PASS/FAIL."""
+    text = str(value or "").strip().upper()
+    if text in {"PASS", "PASSED", "LULUS"}:
+        return "PASS"
+    if text in {"FAIL", "FAILED", "GAGAL", "TIDAK LULUS"}:
+        return "FAIL"
+    return None
+
+
+def dedupe_evidence_for_display(evidence: list[dict]) -> list[dict]:
+    """Kelompokkan bukti ganda per (kategori, sub-ujian); tampilkan yang lulus.
+
+    Kandidat fuzzy Certiport ganda (mis. dua baris Word mirip) menghasilkan
+    beberapa baris evidence untuk sub-ujian yang sama. Baris yang
+    disembunyikan tetap tersimpan di database; jumlahnya dicatat di
+    `duplicate_count` agar transparan bagi reviewer.
+    """
+    grouped: dict[tuple[str, str], list[dict]] = {}
+    for ev in evidence:
+        key = (str(ev.get("category") or "").upper(), str(ev.get("exam") or "").upper())
+        grouped.setdefault(key, []).append(ev)
+
+    deduped: list[dict] = []
+    for key in grouped:
+        group = grouped[key]
+        if len(group) == 1:
+            shown = dict(group[0])
+            shown["duplicate_count"] = 0
+            shown["duplicate_ids"] = []
+        else:
+            ordered = sorted(group, key=_evidence_pass_rank)
+            shown = dict(ordered[0])
+            shown["duplicate_count"] = len(group) - 1
+            shown["duplicate_ids"] = [g.get("id") for g in ordered[1:]]
+        deduped.append(shown)
+    return deduped
+
+
+def attach_evidence_source_refs(supabase: Client, evidence: list[dict]) -> None:
+    """Lengkapi tiap evidence dengan baris xlsx dan nama file sumber.
+
+    `sitasi_row_id`/`certiport_row_id` adalah id database, bukan baris xlsx.
+    Resolve ke `source_row` + `file_name` batch import agar reviewer tahu
+    nama tersebut ada di baris mana pada file apa
+    (`data_sitasi.xlsx` / `data_certiport.xlsx`). Gagal resolve tidak
+    menggagalkan detail — field dibiarkan None.
+    """
+    try:
+        sitasi_ids = sorted({ev.get("sitasi_row_id") for ev in evidence if ev.get("sitasi_row_id") is not None})
+        certiport_ids = sorted({ev.get("certiport_row_id") for ev in evidence if ev.get("certiport_row_id") is not None})
+
+        master_lookup: dict[str, dict] = {}
+        if sitasi_ids:
+            resp = supabase.table("sitasi_data").select("id,source_row,import_id,status,nilai").in_("id", sitasi_ids).execute()
+            for row in resp.data or []:
+                master_lookup[f"S:{row.get('id')}"] = row
+        if certiport_ids:
+            resp = supabase.table("certiport_data").select("id,source_row,import_id,score,result").in_("id", certiport_ids).execute()
+            for row in resp.data or []:
+                master_lookup[f"C:{row.get('id')}"] = row
+
+        file_names: dict[str, str] = {}
+        import_ids = sorted({r.get("import_id") for r in master_lookup.values() if r.get("import_id")})
+        if import_ids:
+            resp = supabase.table("data_imports").select("id,file_name").in_("id", import_ids).execute()
+            for row in resp.data or []:
+                if row.get("id") is not None and row.get("file_name"):
+                    file_names[str(row["id"])] = str(row["file_name"])
+
+        for ev in evidence:
+            sit = master_lookup.get(f"S:{ev.get('sitasi_row_id')}", {}) if ev.get("sitasi_row_id") is not None else {}
+            crt = master_lookup.get(f"C:{ev.get('certiport_row_id')}", {}) if ev.get("certiport_row_id") is not None else {}
+            ev["sitasi_source_row"] = sit.get("source_row")
+            ev["sitasi_file_name"] = file_names.get(str(sit["import_id"])) if sit.get("import_id") else None
+            ev["certiport_source_row"] = crt.get("source_row")
+            ev["certiport_file_name"] = file_names.get(str(crt["import_id"])) if crt.get("import_id") else None
+            # Koreksi status tampilan dari rekaman master (fallback lama menebak
+            # PASS dari evidence_status sehingga record FAIL ikut berlabel PASS).
+            master_result = _normalize_master_certiport_result(crt.get("result"))
+            if master_result:
+                ev["certiport_status"] = master_result
+            if not ev.get("sitasi_status") and sit.get("status"):
+                ev["sitasi_status"] = sit["status"]
+            if ev.get("certiport_score") is None and crt.get("score") is not None:
+                ev["certiport_score"] = crt["score"]
+            if ev.get("sitasi_score") is None and sit.get("nilai") is not None:
+                ev["sitasi_score"] = sit["nilai"]
+    except Exception:
+        for ev in evidence:
+            ev.setdefault("sitasi_source_row", None)
+            ev.setdefault("sitasi_file_name", None)
+            ev.setdefault("certiport_source_row", None)
+            ev.setdefault("certiport_file_name", None)
+
+
 def get_sync_result_detail(
     supabase: Client,
     session_id: str,
@@ -444,7 +555,8 @@ def get_sync_result_detail(
 
         enriched_evidence.append(ev_copy)
 
-    result_row["evidence"] = enriched_evidence
+    attach_evidence_source_refs(supabase, enriched_evidence)
+    result_row["evidence"] = dedupe_evidence_for_display(enriched_evidence)
 
     audit_resp = (
         supabase.table("review_audit")
@@ -482,7 +594,7 @@ def submit_review(
     note: str,
     user_id: str | None = None,
     user_name: str | None = None,
-    user_role: str = "staff",
+    user_role: str = "admin",
 ) -> dict:
     """Simpan keputusan review manual petugas dengan audit trail lengkap.
 

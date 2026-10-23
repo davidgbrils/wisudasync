@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from app.services.matching_service import (
     DATA_TIDAK_DITEMUKAN,
@@ -8,6 +8,7 @@ from app.services.matching_service import (
     VALID,
     build_sitasi_index,
     match_wisuda_to_sitasi,
+    status_label,
 )
 from app.services.normalization_service import normalize_name
 
@@ -52,7 +53,7 @@ def wisuda_row(
 # ---------------------------------------------------------------------------
 
 def test_single_nim_many_attempts_groups_by_exam_and_preserves_all():
-    """Satu NIM dengan banyak attempt di beberapa ujian — semua attempt tetap terlacak."""
+    """Satu NIM dengan banyak attempt di beberapa ujian â€” semua attempt tetap terlacak."""
     sitasi = [
         sitasi_row(id=1, source_row=2, nim="209900001", nama="MAHASISWA CONTOH",
                    sertifikasi="MOS", sub_program="Word", nilai=700, status="LULUS"),
@@ -122,7 +123,7 @@ def test_lulus_not_overwritten_by_fail_on_same_exam():
 # ---------------------------------------------------------------------------
 
 def test_all_failed_yields_tidak_lulus():
-    """Semua attempt gagal/tidak lulus → status TIDAK_LULUS."""
+    """Semua attempt gagal/tidak lulus â†’ status TIDAK_LULUS."""
     sitasi = [
         sitasi_row(id=1, source_row=2, sertifikasi="MOS", sub_program="Word", status="Gagal", nilai=300),
         sitasi_row(id=2, source_row=3, sertifikasi="MOS", sub_program="Word", status="Tidak Lulus", nilai=350),
@@ -144,7 +145,7 @@ def test_all_failed_yields_tidak_lulus():
 # ---------------------------------------------------------------------------
 
 def test_pending_status():
-    """Ada attempt PENDING tanpa LULUS → status PENDING."""
+    """Ada attempt PENDING tanpa LULUS â†’ status PENDING."""
     sitasi = [
         sitasi_row(id=1, source_row=2, status="Pending"),
         sitasi_row(id=2, source_row=3, status="Gagal", nilai=300),
@@ -161,7 +162,7 @@ def test_pending_status():
 
 
 def test_pending_does_not_override_lulus():
-    """LULUS tetap prioritas — meski ada PENDING di attempt lain, LULUS tetap disimpan."""
+    """LULUS tetap prioritas â€” meski ada PENDING di attempt lain, LULUS tetap disimpan."""
     sitasi = [
         sitasi_row(id=1, source_row=2, status="Pending"),
         sitasi_row(id=2, source_row=3, status="Lulus", nilai=700),
@@ -174,7 +175,7 @@ def test_pending_does_not_override_lulus():
     exam = result["exams"][0]
     assert exam["has_lulus"] is True
     assert exam["lulus_evidence"]["id"] == 2
-    # LULUS → PERLU_VERIFIKASI (butuh Certiport)
+    # LULUS â†’ PERLU_VERIFIKASI (butuh Certiport)
     assert exam["exam_status"] == PERLU_VERIFIKASI
 
 
@@ -183,7 +184,7 @@ def test_pending_does_not_override_lulus():
 # ---------------------------------------------------------------------------
 
 def test_nim_not_found_returns_data_tidak_ditemukan():
-    """NIM wisuda tidak ada di batch SITASI aktif → DATA_TIDAK_DITEMUKAN."""
+    """NIM wisuda tidak ada di batch SITASI aktif â†’ DATA_TIDAK_DITEMUKAN."""
     sitasi = [
         sitasi_row(id=1, source_row=2, nim="111111111", nama="ORANG LAIN"),
     ]
@@ -199,7 +200,7 @@ def test_nim_not_found_returns_data_tidak_ditemukan():
 
 
 def test_empty_sitasi_batch_all_nim_not_found():
-    """Batch SITASI kosong → semua wisuda DATA_TIDAK_DITEMUKAN."""
+    """Batch SITASI kosong â†’ semua wisuda DATA_TIDAK_DITEMUKAN."""
     wisuda = [
         wisuda_row(nim="209900001", nama="MAHASISWA CONTOH"),
         wisuda_row(nim="209900002", nama="MAHASISWA DUA"),
@@ -216,7 +217,7 @@ def test_empty_sitasi_batch_all_nim_not_found():
 # ---------------------------------------------------------------------------
 
 def test_different_name_flagged_not_rejected():
-    """NIM sama tapi nama berbeda — name_match=DIFFERENT, tapi matching tetap berdasarkan NIM."""
+    """NIM sama tapi nama berbeda â€” name_match=DIFFERENT, tapi matching tetap berdasarkan NIM."""
     sitasi = [
         sitasi_row(id=1, source_row=2, nim="209900001", nama="MAHASISWA CONTOH", status="Lulus"),
     ]
@@ -227,13 +228,13 @@ def test_different_name_flagged_not_rejected():
     result = results[0]
 
     assert result["name_match"] == "DIFFERENT"
-    # NIM match tetap berhasil — nama hanya flag
+    # NIM match tetap berhasil â€” nama hanya flag
     assert result["overall_status"] == PERLU_VERIFIKASI
     assert result["evidence"]["matched_rows"] == 1
 
 
 def test_exact_name_match():
-    """Nama sama setelah normalisasi → name_match=EXACT."""
+    """Nama sama setelah normalisasi â†’ name_match=EXACT."""
     sitasi = [
         sitasi_row(id=1, source_row=2, nim="209900001", nama="MAHASISWA CONTOH", status="Lulus"),
     ]
@@ -246,7 +247,7 @@ def test_exact_name_match():
 
 
 def test_name_with_punctuation_normalized():
-    """Nama dengan titik/spasi ekstra → tetap dianggap EXACT setelah normalisasi."""
+    """Nama dengan titik/spasi ekstra â†’ tetap dianggap EXACT setelah normalisasi."""
     sitasi = [
         sitasi_row(id=1, source_row=2, nim="209900001", nama="A. MUH. FADEL OMAR", status="Lulus"),
     ]
@@ -263,7 +264,7 @@ def test_name_with_punctuation_normalized():
 # ---------------------------------------------------------------------------
 
 def test_mixed_certifications_grouped_separately():
-    """SITASI dengan sertifikasi campuran — setiap ujian dikelompokkan terpisah."""
+    """SITASI dengan sertifikasi campuran â€” setiap ujian dikelompokkan terpisah."""
     sitasi = [
         sitasi_row(id=1, source_row=2, sertifikasi="MOS", sub_program="Word", status="Lulus"),
         sitasi_row(id=2, source_row=3, sertifikasi="MOS", sub_program="Excel", status="Gagal", nilai=400),
@@ -287,7 +288,7 @@ def test_mixed_certifications_grouped_separately():
 # ---------------------------------------------------------------------------
 
 def test_empty_nim_not_rejected_by_match():
-    """Baris wisuda dengan NIM kosong — tidak crash, status DATA_TIDAK_DITEMUKAN."""
+    """Baris wisuda dengan NIM kosong â€” tidak crash, status DATA_TIDAK_DITEMUKAN."""
     wisuda = [wisuda_row(nim=None, nama="MAHASISWA CONTOH")]
     results = match_wisuda_to_sitasi(wisuda, [])
 
@@ -410,7 +411,7 @@ def test_evidence_contains_source_id_row_and_reason():
 # ---------------------------------------------------------------------------
 
 def test_does_not_conclude_graduation_requirements():
-    """LULUS SITASI saja tidak otomatis VALID — butuh Certiport."""
+    """LULUS SITASI saja tidak otomatis VALID â€” butuh Certiport."""
     sitasi = [
         sitasi_row(id=1, source_row=2, status="Lulus"),
         sitasi_row(id=2, source_row=3, sertifikasi="MCF", sub_program="AI-900", status="Lulus"),
@@ -425,7 +426,7 @@ def test_does_not_conclude_graduation_requirements():
 
 
 def test_unknown_status_marked_perlu_verifikasi():
-    """Status SITASI tidak dikenal → PERLU_VERIFIKASI, tidak crash."""
+    """Status SITASI tidak dikenal â†’ PERLU_VERIFIKASI, tidak crash."""
     sitasi = [
         sitasi_row(id=1, source_row=2, status="Aneh"),
     ]
@@ -447,7 +448,7 @@ def test_unknown_status_marked_perlu_verifikasi():
 # ---------------------------------------------------------------------------
 
 def test_mixed_lulus_and_fail_across_different_exams():
-    """Exam A LULUS, Exam B GAGAL — keduanya tetap terlacak dengan status masing-masing."""
+    """Exam A LULUS, Exam B GAGAL â€” keduanya tetap terlacak dengan status masing-masing."""
     sitasi = [
         sitasi_row(id=1, source_row=2, sertifikasi="MOS", sub_program="Word", status="Lulus"),
         sitasi_row(id=2, source_row=3, sertifikasi="MOS", sub_program="Excel", status="Gagal", nilai=300),
@@ -465,12 +466,12 @@ def test_mixed_lulus_and_fail_across_different_exams():
     assert word_exam["has_lulus"] is True
     assert excel_exam["exam_status"] == TIDAK_LULUS
     assert excel_exam["has_lulus"] is False
-    # Overall → PERLU_VERIFIKASI karena ada ujian perlu verifikasi
+    # Overall â†’ PERLU_VERIFIKASI karena ada ujian perlu verifikasi
     assert result["overall_status"] == PERLU_VERIFIKASI
 
 
 def test_all_exams_pending_yields_pending_overall():
-    """Semua ujian PENDING → overall PENDING."""
+    """Semua ujian PENDING â†’ overall PENDING."""
     sitasi = [
         sitasi_row(id=1, source_row=2, sertifikasi="MOS", sub_program="Word", status="Pending"),
         sitasi_row(id=2, source_row=3, sertifikasi="MCF", sub_program="AI-900", status="Pending"),
@@ -482,3 +483,19 @@ def test_all_exams_pending_yields_pending_overall():
 
     assert result["overall_status"] == PENDING
     assert all(e["exam_status"] == PENDING for e in result["exams"])
+
+
+def test_status_label_maps_known_statuses():
+    """Status inti dipetakan ke label bahasa manusia yang disepakati."""
+    assert status_label(VALID) == "Lulus"
+    assert status_label(TIDAK_LULUS) == "Tidak Lulus"
+    assert status_label(DATA_TIDAK_DITEMUKAN) == "Tidak Ada"
+    assert status_label(PERLU_VERIFIKASI) == "Perlu Verifikasi"
+    assert status_label(PENDING) == "Menunggu Hasil"
+
+
+def test_status_label_unknown_is_not_guessed():
+    """Status tak dikenal atau None tidak ditebak menjadi label kelulusan."""
+    assert status_label(None) == "-"
+    assert status_label("STATUS_BARU") == "-"
+    assert status_label("") == "-"

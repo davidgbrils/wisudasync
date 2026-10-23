@@ -6,12 +6,12 @@
 
 create extension if not exists pgcrypto;
 
--- 1. TABEL PROFILES (Akun Petugas & Administrator)
+-- 1. TABEL PROFILES (Akun Administrator)
 create table if not exists public.profiles (
-    id uuid primary key references auth.users(id) on delete cascade,
+    id uuid primary key default gen_random_uuid(),
     display_name text,
-    role text not null default 'staff'
-        constraint profiles_role_allowed check (role in ('staff', 'admin')),
+    role text not null default 'admin'
+        constraint profiles_role_allowed check (role in ('admin')),
     is_active boolean not null default true,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
@@ -30,7 +30,7 @@ create table if not exists public.data_imports (
         constraint data_imports_status_allowed check (status in ('PROCESSING', 'COMPLETED', 'FAILED')),
     is_active boolean not null default false,
     error_message text,
-    created_by uuid references auth.users(id) on delete set null,
+    created_by uuid,
     created_at timestamptz not null default now(),
     completed_at timestamptz,
     constraint data_imports_rows_nonnegative check (total_rows >= 0 and imported_rows >= 0),
@@ -77,7 +77,7 @@ create table if not exists public.certiport_data (
 -- 5. TABEL SYNC_SESSIONS
 create table if not exists public.sync_sessions (
     id uuid primary key default gen_random_uuid(),
-    created_by uuid references auth.users(id) on delete set null,
+    created_by uuid,
     file_name text not null,
     original_file_path text,
     output_file_path text,
@@ -104,6 +104,8 @@ create table if not exists public.sync_results (
     source_row integer not null constraint sync_results_source_row_valid check (source_row >= 2),
     nim text not null,
     nama_wisuda text not null,
+    kode_prodi text,
+    program_studi text,
     nama_sitasi text,
     name_match_type text,
     mos_status text,
@@ -136,7 +138,7 @@ create table if not exists public.sync_evidence (
 create table if not exists public.review_audit (
     id uuid primary key default gen_random_uuid(),
     result_id uuid not null references public.sync_results(id) on delete cascade,
-    reviewed_by uuid references auth.users(id) on delete set null,
+    reviewed_by uuid,
     reviewer_name text,
     decision text not null
         constraint review_audit_decision_allowed check (
@@ -254,32 +256,9 @@ grant select, insert, update, delete on table public.review_audit to service_rol
 grant usage, select on all sequences in schema public to service_role;
 grant execute on function public.complete_data_import(uuid, integer) to service_role;
 
--- TRIGGER OTOMATIS SAAT USER REGISTRASI
-create or replace function public.handle_new_user()
-returns trigger as $$
-begin
-  insert into public.profiles (id, display_name, role, is_active)
-  values (
-    new.id,
-    coalesce(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1)),
-    'staff',
-    true
-  )
-  on conflict (id) do update
-  set display_name = coalesce(excluded.display_name, public.profiles.display_name);
-  return new;
-end;
-$$ language plpgsql security definer;
-
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function public.handle_new_user();
-
--- BACKFILL AKUN YANG SUDAH TERDAFTAR (contoh: David sembiringd93@gmail.com)
+-- PROFIL ADMINISTRATOR DEFAULT (Sistem Admin-Only tanpa batasan registrasi)
 insert into public.profiles (id, display_name, role, is_active)
-select id, coalesce(raw_user_meta_data->>'display_name', split_part(email, '@', 1)), 'admin', true
-from auth.users
+values ('00000000-0000-0000-0000-000000000001', 'Administrator ITCC', 'admin', true)
 on conflict (id) do update set role = 'admin', is_active = true;
 
 -- REFRESH SCHEMA CACHE SUPABASE POSTGREST

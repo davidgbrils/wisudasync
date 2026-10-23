@@ -835,6 +835,12 @@ export default function SyncResultDetailPage({
                             </p>
                           )}
 
+                          {(ev.duplicate_count ?? 0) > 0 && (
+                            <p className="rounded-lg border border-[#DDE4E1] bg-[#F5F7F6] px-2.5 py-1.5 text-[11px] text-[#66736F] italic">
+                              {ev.duplicate_count} bukti duplikat untuk sub-ujian ini disembunyikan — ditampilkan yang lulus.
+                            </p>
+                          )}
+
                           {/* Grid Perbandingan 2 Sumber: SITASI & Certiport */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                             {/* Kolom 1: Sumber SITASI */}
@@ -845,8 +851,11 @@ export default function SyncResultDetailPage({
                                   Basis Data SITASI
                                 </span>
                                 {ev.sitasi_row_id && (
-                                  <span className="font-mono text-[10px] text-[#66736F]">
-                                    Baris #{ev.sitasi_row_id}
+                                  <span
+                                    className="font-mono text-[10px] text-[#66736F]"
+                                    title={ev.sitasi_file_name ? `Sumber: ${ev.sitasi_file_name} baris ${ev.sitasi_source_row ?? ev.sitasi_row_id}` : undefined}
+                                  >
+                                    {ev.sitasi_file_name ? `${ev.sitasi_file_name} · ` : ""}Baris #{ev.sitasi_source_row ?? ev.sitasi_row_id}
                                   </span>
                                 )}
                               </div>
@@ -894,8 +903,11 @@ export default function SyncResultDetailPage({
                                   Sertifikat Certiport
                                 </span>
                                 {ev.certiport_row_id && (
-                                  <span className="font-mono text-[10px] text-[#66736F]">
-                                    Baris #{ev.certiport_row_id}
+                                  <span
+                                    className="font-mono text-[10px] text-[#66736F]"
+                                    title={ev.certiport_file_name ? `Sumber: ${ev.certiport_file_name} baris ${ev.certiport_source_row ?? ev.certiport_row_id}` : undefined}
+                                  >
+                                    {ev.certiport_file_name ? `${ev.certiport_file_name} · ` : ""}Baris #{ev.certiport_source_row ?? ev.certiport_row_id}
                                   </span>
                                 )}
                               </div>

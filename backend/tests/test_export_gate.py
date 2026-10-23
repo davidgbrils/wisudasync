@@ -120,10 +120,12 @@ def test_export_draft_generates_valid_workbook_with_draft_labels(mock_supabase_f
 # API tests: GET /api/v1/sync/{session_id}/export
 # ---------------------------------------------------------------------------
 
-def test_api_export_unauthorized_is_401():
+def test_api_export_accessible_without_auth(monkeypatch, mock_supabase_for_export):
+    sb, session_id = mock_supabase_for_export
+    monkeypatch.setattr(sync_endpoint, "get_supabase", lambda: sb)
     client = TestClient(app)
-    resp = client.get("/api/v1/sync/sess-export-1/export?mode=draft")
-    assert resp.status_code == 401
+    resp = client.get(f"/api/v1/sync/{session_id}/export?mode=draft")
+    assert resp.status_code == 200
 
 
 def test_api_export_final_returns_403_forbidden(monkeypatch, mock_supabase_for_export):

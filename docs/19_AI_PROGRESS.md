@@ -517,3 +517,101 @@ Dokumen ini menjadi checkpoint singkat antarsesi. Perbarui setelah setiap peruba
 - **Tes terakhir:** `pytest tests -q` — 157 PASS.
 - **Blocker:** Perlu restart backend port 8000 agar berlaku, dan UAT visual.
 - **Berikutnya:** `npm run typecheck`/`build`, E2E browser, dan perbarui `docs/06_BUSINESS_RULES.md`.
+
+## 2026-10-14 — Pencocokan nama Certiport wajib minimal 2 kata
+
+- **Status:** SELESAI (aturan + test). Belum UAT visual.
+- **Tahap:** Mengetatkan pencocokan nama Certiport agar kandidat dengan hanya 1 kata mirip tidak lagi dianggap kandidat.
+- **Perubahan:**
+  - `backend/app/services/matching_service.py`: `_find_certiport_candidates_fuzzy` gating minimal 2 kata (`NAME_MIN_MATCHING_WORDS`), helper `_name_word_tokens` + `_count_matching_name_words` (toleran typo, `NAME_WORD_MATCH_THRESHOLD = 85`), field `matched_words` pada kandidat. Nama target 1 kata memakai batas 1.
+  - `backend/tests/test_certiport_matching.py`: 4 regression test baru.
+  - `docs/06_BUSINESS_RULES.md`: §3 aturan `MIN_TWO_WORDS`.
+  - `docs/18_CHANGELOG.md`: entri 2026-10-14.
+- **Tes terakhir:** `pytest tests -q` — 161 PASS (4 test baru).
+- **Blocker:** Tidak ada blocker teknis. Perlu restart backend port 8000 agar berlaku dan UAT visual. Catatan keputusan terbuka: apakah kandidat yang lolos 2 kata boleh naik ke `VALID` (saat ini tetap `PERLU_VERIFIKASI` sesuai ADR-004).
+- **Berikutnya:** Restart backend + UAT visual pada layar review sinkronisasi.
+
+## 2026-10-14 — Nama satu kata tahan tanda baca/kurung
+
+- **Status:** SELESAI (aturan + test). Belum UAT visual.
+- **Tahap:** Menangani nama wisuda satu kata (mis. `DAVID`) yang di SITASI/Certiport ditulis berhias, mis. `( DAVID.)`.
+- **Perubahan:**
+  - `backend/app/services/matching_service.py`: `_get_nama_normalized` + `build_certiport_name_index` menormalkan ulang nilai tersimpan (idempoten); `_name_word_tokens` menormalkan sebelum tokenisasi.
+  - `backend/tests/test_certiport_matching.py`: 3 regression test baru.
+  - `docs/06_BUSINESS_RULES.md`: aturan `DECORATION_FOLD` (§3.6).
+  - `docs/18_CHANGELOG.md`: entri 2026-10-14.
+- **Tes terakhir:** `pytest tests -q` — 164 PASS (3 test baru).
+- **Blocker:** Tidak ada blocker teknis. Perlu restart backend port 8000 dan UAT visual.
+- **Berikutnya:** Restart backend + UAT visual pada layar review sinkronisasi.
+
+## 2026-10-14 — Detail bukti: deduplikasi + rujukan baris xlsx
+
+- **Status:** SELESAI (kode + test). Belum UAT visual.
+- **Tahap:** Modal detail menampilkan dua kartu MOS·Word ganda (id database sebagai "Baris #"); kini hanya yang lulus tampil + badge menunjuk file xlsx dan baris aslinya.
+- **Perubahan:**
+  - `backend/app/services/sync_service.py`: `dedupe_evidence_for_display` (tampil yang lulus, `duplicate_count`) + `attach_evidence_source_refs` (resolve `source_row` + `file_name` master, koreksi label FAIL).
+  - `backend/tests/test_sync_service.py`: mock `in_` + 2 test baru.
+  - `frontend/lib/api.ts`, `sinkronisasi/[id]/page.tsx`: badge `namafile.xlsx · Baris #X` + catatan duplikat.
+  - `docs/18_CHANGELOG.md`: entri 2026-10-14.
+- **Tes terakhir:** `pytest tests -q` — 166 PASS; `npm run typecheck` — PASS.
+- **Blocker:** Tidak ada. Perlu restart backend + UAT visual modal detail (kasus ELIZA: 1 kartu Word PASS + badge `data_certiport.xlsx · Baris #…`).
+- **Berikutnya:** Restart backend + UAT visual, lalu lanjutkan antrian Prompt.
+
+## 2026-10-19 — Pengesahan ADR-005 (Alias Ujian) & Penanganan Sub-Program "Tidak Diketahui"
+
+- **Status:** SELESAI
+- **Tahap:** Pengesahan resmi ekuivalensi alias ujian Word 2019 / Excel 2019 / Azure AI-900 (ADR-005) dan eliminasi degradasi status kelulusan akibat rekaman pendaftaran awal "Tidak Diketahui" (PENDING).
+- **Perubahan:**
+  - `backend/app/services/matching_service.py`: `EXAM_ALIAS_STATUS = "APPROVED"`, `PLACEHOLDER_SUB_PROGRAMS`, logika pengecualian placeholder pending pada `_build_program_summary` ketika mahasiswa memiliki rekaman ujian konkret.
+  - `docs/20_OUTPUT_MAPPING_APPROVAL.md` & `docs/14_DECISIONS.md`: Pengesahan resmi ADR-005 dicatat di dokumen tata kelola institusi.
+  - `backend/tests/test_certiport_matching.py` & `backend/tests/test_validation_engine.py`: Pembaruan test suite untuk status APPROVED dan penambahan unit test kasus pendaftaran ganda (Hendrawan).
+  - `docs/18_CHANGELOG.md`: Pencatatan changelog.
+- **Tes terakhir:** `pytest tests -q` — 167 PASS (100% passed); live sync session `717c64be-17df-4040-8901-40f3fb99d647` berhasil memvalidasi 39 mahasiswa ke status `VALID` (naik dari 16).
+- **Blocker:** Tidak ada blocker teknis. Persetujuan ADR-003 (format ekspor) tetap menjadi gate untuk ekspor final.
+- **Berikutnya:** Pengujian verifikasi visual pada antarmuka web dan persiapan UAT final.
+
+## 2026-10-19 — Label Hasil Bahasa Manusia & Workbook Validasi Wisuda (Lokal)
+
+- **Status:** SELESAI (kode + test + berkas pratinjau lokal). Belum UAT dan belum di-commit.
+- **Tahap:** Menyediakan rekap validasi 424 baris wisuda dengan label `Lulus` / `Tidak Lulus` / `Tidak Ada` / `Perlu Verifikasi` / `Menunggu Hasil`, plus pratinjau isi kolom `Sertifikasi MOS`, `Sertifikasi MCF`, dan `Title Microsoft` (format Opsi 1A dan 4A ADR-003) berlabel DRAFT.
+- **Perubahan:**
+  - `backend/app/services/matching_service.py`: `STATUS_LABELS` + `status_label()` (lapisan tampilan; status inti 5 nilai tidak diubah).
+  - `backend/scripts/generate_validation_workbook.py` (baru): generator workbook pratinjau dari tiga berkas lokal memakai `validate_wisuda_complete`; 10 sheet; self-check jumlah baris dan daftar label.
+  - `backend/tests/test_matching_service.py`: 2 test baru untuk `status_label()`.
+  - `docs/18_CHANGELOG.md`: entri 2026-10-19.
+- **Bukti:** `pytest tests -q` — 169 PASS. Generator dijalankan: `Lulus=39`, `Tidak Lulus=29`, `Perlu Verifikasi=81`, `Menunggu Hasil=1`, `Tidak Ada=274`. Uji silang dengan 18 baris berlabel manual pada `data_wisuda.xlsx`: 17 cocok, 1 berbeda (`202011018` → `Perlu Verifikasi`, benar menurut aturan fuzzy tidak auto-valid). Berkas keluaran: `hasil_validasi_wisuda.xlsx` (terabaikan `.gitignore`).
+- **Blocker:** Tidak ada blocker teknis. ADR-003/006/010/011 masih terbuka, sehingga isi kolom target pada workbook ini hanya DRAFT dan belum boleh dipakai sebagai berkas wisuda final.
+- **Berikutnya:** Konfirmasi ke pembimbing untuk 82 baris berlabel `Perlu Verifikasi`/`Menunggu Hasil` (50 nama Certiport ganda, 21 konflik bukti, 9 nama mirip, 1 PENDING) dan 1 baris yang berbeda dari label manual, lalu tentukan apakah antarmuka web juga memakai label bahasa manusia.
+
+## 2026-10-19 — Koreksi Keterangan Bukti Valid pada Sheet Detail
+
+- **Status:** SELESAI (kode + berkas pratinjau lokal). Belum UAT dan belum di-commit.
+- **Tahap:** Memberbaiki keterangan pada sheet detail yang menyebut "konflik sumber" padahal bukti terakhir sebenarnya valid (SITASI LULUS + Certiport PASS dengan skor identik), sementara status tetap `Perlu Verifikasi` sesuai instruksi pemilik.
+- **Perubahan:**
+  - `backend/scripts/generate_validation_workbook.py`: `corrected_reason()` (kode alasan `R01_VALID` + keterangan "VALID: ..."), `corrected_row_codes()` (selaras kode alasan tingkat baris), `corrected_valid_notes()` (catatan pada `Catatan Review` dan `Catatan Perbedaan`), `certiport_status_for_exam()` (perbaikan kolom `Status Certiport` yang sebelumnya `-`).
+  - `docs/18_CHANGELOG.md`: entri 2026-10-19.
+  - Mesin pencocokan (`backend/app/services/matching_service.py`) tidak diubah: aturan konflik sumber §6 tetap berlaku, hanya pembacaan keterangannya yang dikoreksi.
+- **Bukti:** `pytest tests -q` — 169 PASS. Distribusi `Kode Alasan` pada `Detail Ujian`: `R01_VALID` 83 → 89, `R04_CERTIPORT_NO_PASS` 5 → 0. Status tingkat baris tidak berubah (`Lulus=39`, `Tidak Lulus=29`, `Perlu Verifikasi=81`, `Menunggu Hasil=1`, `Tidak Ada=274`). 6 baris terkoreksi: `202214003`, `201921053`, `202131039`, `202131073`, `202131135`, `202131155`.
+- **Blocker:** Tidak ada blocker teknis. Status 6 baris tersebut sengaja tetap `Perlu Verifikasi` sampai petugas memastikan attempt terakhir.
+- **Berikutnya:** Petugas memeriksa attempt FAIL lama pada 6 baris tersebut (rincian attempt ada di `Detail Certiport`); bila attempt terakhir memang PASS, status dapat dinaikkan pada tahap berikutnya dengan persetujuan pemilik.
+
+## 2026-10-23 — Penyederhanaan Sistem: Admin-Only, Hapus Landing Page & Login/Register
+
+- **Status:** SELESAI
+- **Tahap:** Penyederhanaan seluruh arsitektur sistem menjadi berfokus pada inti validasi data, pengalihan rute awal langsung ke halaman validasi data (`/sinkronisasi`), eliminasi fitur login dan register, penerapan role tunggal Admin, dan pembuatan SQL pembaruan Supabase.
+- **Perubahan:**
+  - `frontend/app/page.tsx`: Hapus landing page dan alihkan langsung ke `/sinkronisasi`.
+  - `frontend/app/(dashboard)/layout.tsx`: Hapus proteksi auth guard `verifyStaffRoute`.
+  - `frontend/proxy.ts`: Hapus session cookie check dan alihkan `/login` ke `/sinkronisasi`.
+  - `frontend/lib/api.ts`: Hapus login token requirement pada `authorizedHeaders()`.
+  - `frontend/components/dashboard-shell.tsx`: Sesuaikan identitas ke Administrator ITCC (Admin) dan hilangkan tombol Logout.
+  - `frontend/components/sidebar-nav.tsx`: Letakkan "Validasi Wisuda" di posisi teratas.
+  - `frontend/app/login/page.tsx` & `unauthorized/page.tsx`: Alihkan ke `/sinkronisasi`.
+  - `backend/app/core/auth.py`: Mengembalikan `DEFAULT_ADMIN_PRINCIPAL` secara langsung tanpa barrier 401/403.
+  - `backend/app/api/v1/endpoints/auth.py`: `/auth/me` mengembalikan Admin; `/auth/register` dinonaktifkan (HTTP 400).
+  - `backend/app/services/sync_service.py`: Default role submit_review menjadi `"admin"`.
+  - `database/UPDATE_SIMPLIFY_ADMIN_ONLY.sql`: Skrip SQL migrasi siap salin-tempel di SQL Editor Supabase.
+  - `database/SETUP_ALL_TABLES.sql`: Master SQL diselaraskan dengan constraint role tunggal admin.
+- **Tes terakhir:** `venv/Scripts/python.exe -m pytest tests -q` — 158 PASS; `npm run typecheck` — PASS; `npm run build` — PASS.
+- **Blocker:** Tidak ada blocker teknis. Pemilik project dapat langsung menyalin isi `database/UPDATE_SIMPLIFY_ADMIN_ONLY.sql` ke SQL Editor Supabase.
+- **Berikutnya:** Jalankan skrip SQL di dashboard Supabase jika database aktif ingin diselaraskan dengan schema baru.

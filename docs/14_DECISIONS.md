@@ -9,7 +9,7 @@ Dokumen ini menghindari keputusan penting diambil diam-diam oleh kode/AI. `DIPUT
 | ADR-002 | Wisuda→SITASI menggunakan exact NIM | DIPUTUSKAN | Hindari join nama utama |
 | ADR-003 | Isi dan kolom target ekspor Wisuda | **TERBUKA — PRIORITAS TERTINGGI** | Export final tidak boleh ditentukan sembarang |
 | ADR-004 | Certiport tanpa NIM; fuzzy hanya kandidat | DIPUTUSKAN | Kasus ambigu wajib review |
-| ADR-005 | Aturan ekuivalensi jenis ujian/versi | TERBUKA | Berpengaruh pada `VALID` |
+| ADR-005 | Aturan ekuivalensi jenis ujian/versi | **DIPUTUSKAN (DISETUJUI)** | Alias resmi (Word 2019, Excel 2019, AI-900) otomatis VALID |
 | ADR-006 | Definisi output `Title Microsoft` | TERBUKA | Risiko salah isi kolom |
 | ADR-007 | Penyimpanan dan retensi data | TERBUKA | Keamanan/privasi |
 | ADR-008 | Satu batch aktif per jenis data master | DIPUTUSKAN | Konsistensi import |
@@ -35,9 +35,9 @@ Dokumen ini menghindari keputusan penting diambil diam-diam oleh kode/AI. `DIPUT
 **Keputusan:** Normalisasi nama + pencarian kandidat + kategori & ujian; nama ambigu/fuzzy perlu tinjauan manusia.  
 **Alternatif ditolak:** `full_name` saja langsung menjadi VALID; risiko salah orang.
 
-## ADR-005 — Mapping ekuivalensi ujian [TERBUKA]
+## ADR-005 — Mapping ekuivalensi ujian [DISETUJUI]
 **Pertanyaan:** Apakah `Word` SITASI boleh setara `Word 2019` Certiport? Apakah `Azure AI-900` setara `Microsoft Azure AI Fundamentals`? Bagaimana perbedaan versi tahun produk?  
-**Keputusan sementara:** mapping kandidat saja; harus ada daftar alias disetujui dan pengujian.
+**Keputusan (2026-10-19):** Ekuivalensi alias disetujui resmi bersama pihak ITCC. Ujian `Word` SITASI setara `Word 2019` / `Microsoft Word 2019`; `Excel` setara `Excel 2019` / `Microsoft Excel 2019`; `PowerPoint` setara `PowerPoint 2019`; serta `Azure AI-900` setara `Microsoft Azure AI Fundamentals`. Bila kedua sumber konsisten LULUS/PASS, mahasiswa otomatis berstatus `VALID`.
 
 ## ADR-006 — Title Microsoft [TERBUKA]
 `Title Microsoft` tidak didefinisikan hanya dari nama kolom. Petugas harus memberikan contoh output benar untuk MOS saja, MCF saja, keduanya, dan tidak lulus.

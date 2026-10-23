@@ -218,13 +218,15 @@ def test_review_does_not_delete_or_alter_original_evidence(mock_supabase_with_re
 # API tests: PATCH /api/v1/sync/{session_id}/results/{result_id}/review
 # ---------------------------------------------------------------------------
 
-def test_api_review_unauthorized_is_401():
+def test_api_review_accessible_without_auth(monkeypatch, mock_supabase_with_result):
+    sb, session_id, result_id = mock_supabase_with_result
+    monkeypatch.setattr(sync_endpoint, "get_supabase", lambda: sb)
     client = TestClient(app)
     resp = client.patch(
-        "/api/v1/sync/sess-1/results/res-1/review",
-        json={"decision": "TUNDA_VERIFIKASI", "note": "Catatan"},
+        f"/api/v1/sync/{session_id}/results/{result_id}/review",
+        json={"decision": "TUNDA_VERIFIKASI", "note": "Catatan admin"},
     )
-    assert resp.status_code == 401
+    assert resp.status_code == 200
 
 
 def test_api_review_adr009_blocks_staff_konfirmasi(monkeypatch, mock_supabase_with_result):

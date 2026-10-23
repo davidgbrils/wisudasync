@@ -4,8 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const links = [
-  { href: "/dashboard", label: "Ringkasan", icon: "/brand/icon-laporan.png" },
   { href: "/sinkronisasi", label: "Validasi Wisuda", icon: "/brand/icon-wisuda.png" },
+  { href: "/dashboard", label: "Ringkasan Master", icon: "/brand/icon-laporan.png" },
   { href: "/riwayat", label: "Riwayat Sinkronisasi", icon: "/brand/icon-sinkronisasi.png" },
   { href: "/sitasi", label: "Data SITASI", icon: "/brand/icon-sitasi.png" },
   { href: "/certiport", label: "Data Certiport", icon: "/brand/icon-certiport.png" },

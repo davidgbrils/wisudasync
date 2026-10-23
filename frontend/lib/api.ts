@@ -93,6 +93,12 @@ export type SyncEvidenceItem = {
   certiport_name?: string | null;
   certiport_score?: number | null;
   certiport_status?: string | null;
+  sitasi_source_row?: number | null;
+  sitasi_file_name?: string | null;
+  certiport_source_row?: number | null;
+  certiport_file_name?: string | null;
+  duplicate_count?: number;
+  duplicate_ids?: unknown;
 };
 
 export type ReviewAuditItem = {
@@ -133,14 +139,11 @@ export type SyncResultsResponse = {
 };
 
 async function authorizedHeaders(): Promise<HeadersInit> {
-  const { data: { session }, error } = await createSupabaseBrowserClient().auth.getSession();
-  if (error || !session?.access_token) throw new Error("Sesi login berakhir. Silakan masuk kembali.");
-  return { Authorization: `Bearer ${session.access_token}` };
+  // Mode langsung Administrator tanpa autentikasi login/register
+  return {};
 }
 
 function safeError(status: number, fallback: string, isUpload = false): string {
-  if (status === 401) return "Sesi login berakhir. Silakan masuk kembali.";
-  if (status === 403) return "Akun ini tidak memiliki akses petugas.";
   if (isUpload && status === 413) return "Ukuran file melewati batas 10 MiB.";
   if (isUpload && (status === 400 || status === 422)) return "File belum sesuai format atau template yang diwajibkan.";
   return fallback;

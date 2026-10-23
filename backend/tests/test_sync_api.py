@@ -100,15 +100,10 @@ def setup_supabase_mock(monkeypatch):
 # Unauthenticated tests
 # ---------------------------------------------------------------------------
 
-def test_sync_endpoints_require_auth():
-    unauth_client = TestClient(app)
-    # Test POST /sync without auth
-    resp = unauth_client.post("/api/v1/sync", files={"file": ("wisuda.xlsx", b"dummy")})
-    assert resp.status_code == 401
-
-    # Test GET /sync without auth
-    resp = unauth_client.get("/api/v1/sync")
-    assert resp.status_code == 401
+def test_sync_endpoints_accessible_without_auth(setup_supabase_mock):
+    client = TestClient(app)
+    resp = client.get("/api/v1/sync")
+    assert resp.status_code == 200
 
 
 # ---------------------------------------------------------------------------

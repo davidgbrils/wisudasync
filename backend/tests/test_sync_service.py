@@ -13,6 +13,7 @@ from app.services.sync_service import (
     SyncExecutionError,
     SyncSessionNotFoundError,
     create_and_execute_sync,
+    dedupe_evidence_for_display,
     get_sync_result_detail,
     get_sync_session,
     list_sync_results,
@@ -68,6 +69,10 @@ class MockQuery:
         self._filters.append(("eq", column, value))
         return self
 
+    def in_(self, column: str, values: list[Any]):
+        self._filters.append(("in", column, list(values)))
+        return self
+
     def order(self, column: str, desc: bool = False):
         self._order = (column, desc)
         return self
@@ -105,6 +110,9 @@ class MockQuery:
             match = True
             for op, col, val in self._filters:
                 if op == "eq" and r.get(col) != val:
+                    match = False
+                    break
+                if op == "in" and r.get(col) not in val:
                     match = False
                     break
             if match and self._or_filter:
@@ -448,3 +456,57 @@ def test_get_sync_result_detail_includes_evidence(populated_supabase):
     ev = detail["evidence"][0]
     assert ev["category"] == "MOS"
     assert ev["exam"] == "Word"
+
+
+def test_dedupe_evidence_prefers_pass():
+    """Bukti ganda satu sub-ujian: yang lulus ditampilkan, sisanya dihitung."""
+    rows = [
+        {"id": "e1", "category": "MOS", "exam": "Word", "certiport_status": "FAIL", "evidence_status": PERLU_VERIFIKASI},
+        {"id": "e2", "category": "MOS", "exam": "Word", "certiport_status": "PASS", "evidence_status": PERLU_VERIFIKASI},
+        {"id": "e3", "category": "MOS", "exam": "Excel", "certiport_status": "FAIL", "evidence_status": PERLU_VERIFIKASI},
+    ]
+    out = dedupe_evidence_for_display(rows)
+    assert len(out) == 2
+    word = next(e for e in out if e["exam"] == "Word")
+    assert word["id"] == "e2"
+    assert word["duplicate_count"] == 1
+    assert word["duplicate_ids"] == ["e1"]
+    excel = next(e for e in out if e["exam"] == "Excel")
+    assert excel["duplicate_count"] == 0
+
+
+def test_detail_resolves_source_row_and_file_name(populated_supabase):
+    """Detail evidence menunjuk baris xlsx + nama file (bukan id database)."""
+    sb = populated_supabase
+    sb.storage["data_imports"][0]["file_name"] = "data_sitasi.xlsx"
+    sb.storage["data_imports"][1]["file_name"] = "data_certiport.xlsx"
+
+    session_id = "sess-src-ref"
+    result_id = "res-src-ref"
+    sb.storage["sync_sessions"].append({"id": session_id, "status": "COMPLETED"})
+    sb.storage["sync_results"].append({
+        "id": result_id, "sync_session_id": session_id, "source_row": 2,
+        "nim": "209900001", "nama_wisuda": "MAHASISWA SATU", "nama_sitasi": None,
+        "mos_programs": {}, "mcf_programs": {},
+    })
+    # Dua bukti ganda MOS·Word: FAIL (id 102) dan PASS (id 101, baris xlsx 2).
+    sb.storage["sync_evidence"].extend([
+        {"id": "ev-fail", "result_id": result_id, "category": "MOS", "exam": "Word",
+         "sitasi_row_id": None, "certiport_row_id": 102, "match_method": "M",
+         "match_score": 500, "evidence_status": PERLU_VERIFIKASI, "reason": "FAIL",
+         "created_at": "2026-10-13T00:00:00Z"},
+        {"id": "ev-pass", "result_id": result_id, "category": "MOS", "exam": "Word",
+         "sitasi_row_id": 1, "certiport_row_id": 101, "match_method": "M",
+         "match_score": 800, "evidence_status": PERLU_VERIFIKASI, "reason": "PASS",
+         "created_at": "2026-10-13T00:00:01Z"},
+    ])
+
+    detail = get_sync_result_detail(sb, session_id, result_id)
+    assert len(detail["evidence"]) == 1
+    ev = detail["evidence"][0]
+    assert ev["id"] == "ev-pass"
+    assert ev["duplicate_count"] == 1
+    assert ev["certiport_source_row"] == 2
+    assert ev["certiport_file_name"] == "data_certiport.xlsx"
+    assert ev["sitasi_source_row"] == 2
+    assert ev["sitasi_file_name"] == "data_sitasi.xlsx"

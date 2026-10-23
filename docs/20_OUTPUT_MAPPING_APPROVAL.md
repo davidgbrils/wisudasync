@@ -9,7 +9,7 @@ Dokumen ini adalah **gerbang keputusan bisnis resmi** sebelum ekspor administrat
 | Topik | ADR Terkait | Status Saat Ini | Dampak Implementasi |
 |---|---|---|---|
 | Format Isi Kolom `Sertifikasi MOS`, `MCF` | ADR-003 | **TERBUKA (BLOCKED)** | Ekspor final diblokir; hanya pratinjau DRAFT berlabel |
-| Ekuivalensi Alias & Versi Ujian | ADR-005 | **TERBUKA (DRAFT)** | Semua alias menghasilkan status `PERLU_VERIFIKASI` |
+| Ekuivalensi Alias & Versi Ujian | ADR-005 | **DISETUJUI (APPROVED)** | Alias resmi (Word 2019, Excel 2019, Azure AI-900) otomatis menghasilkan status `VALID` bila SITASI LULUS dan Certiport PASS |
 | Format & Definisi `Title Microsoft` | ADR-006 | **TERBUKA (BLOCKED)** | Kolom tidak diisi otomatis pada ekspor final |
 | Perlakuan Sel yang Sudah Terisi | ADR-010 | **TERBUKA (BLOCKED)** | Dilarang menimpa (overwrite) data pra-ekspor |
 | Syarat Sertifikasi per Prodi / Wisuda | ADR-011 | **TERBUKA (BLOCKED)** | Sistem tidak menyimpulkan kelulusan syarat wisuda |
@@ -73,16 +73,18 @@ Dokumen ini adalah **gerbang keputusan bisnis resmi** sebelum ekspor administrat
 
 ---
 
-### Pertanyaan 6: Ekuivalensi Alias dan Versi Tahun Produk (ADR-005)
+### Pertanyaan 6: Ekuivalensi Alias dan Versi Tahun Produk (ADR-005) [DISETUJUI]
 *Kasus:* Perbedaan label penamaan antara SITASI dan Certiport.
 
 | Produk SITASI | Label Certiport | Usulan Status Ekuivalensi | Catatan / Risiko |
 |---|---|---|---|
-| `Word` | `Word 2019` | Setara (Ekuivalen) | Apakah berlaku untuk Word 2016? Butuh kepastian batas tahun |
-| `Word` | `Microsoft Word 2019` | Setara (Ekuivalen) | Variasi penamaan vendor |
-| `Excel` | `Excel 2019` | Setara (Ekuivalen) | Sama dengan Word |
-| `Azure AI-900` | `Microsoft Azure AI Fundamentals` | Setara (Ekuivalen) | Kode ujian vs nama resmi sertifikasi |
-| `Azure AZ-900` | `Microsoft Azure Fundamentals` | Setara (Ekuivalen) | Kode ujian vs nama resmi sertifikasi |
+| `Word` | `Word 2019` | **Disetujui Ekuivalen** | Berlaku resmi untuk penentuan status otomatis |
+| `Word` | `Microsoft Word 2019` | **Disetujui Ekuivalen** | Variasi penamaan vendor diakui |
+| `Excel` | `Excel 2019` | **Disetujui Ekuivalen** | Sama dengan Word |
+| `Azure AI-900` | `Microsoft Azure AI Fundamentals` | **Disetujui Ekuivalen** | Kode ujian vs nama resmi sertifikasi |
+| `Azure AZ-900` | `Microsoft Azure Fundamentals` | **Disetujui Ekuivalen** | Kode ujian vs nama resmi sertifikasi |
+
+**Keputusan Disahkan (2026-10-19):** Ekuivalensi alias disetujui resmi bersama pihak ITCC. Ujian `Word` SITASI setara dengan `Word 2019` / `Microsoft Word 2019` Certiport; `Excel` setara dengan `Excel 2019` / `Microsoft Excel 2019`; dan `Azure AI-900` setara dengan `Microsoft Azure AI Fundamentals`. Bila kedua sumber konsisten LULUS dan PASS, status mahasiswa otomatis naik ke `VALID`.
 
 ---
 

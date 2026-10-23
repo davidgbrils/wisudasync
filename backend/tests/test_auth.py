@@ -8,17 +8,11 @@ os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "dummy-test-key"
 
 import pytest
 from fastapi.testclient import TestClient
-from supabase_auth.errors import AuthApiError
 
 from app.core import auth as auth_module
 from app.main import app
 
 client = TestClient(app)
-
-
-class InvalidTokenError(AuthApiError):
-    def __init__(self):
-        Exception.__init__(self, "synthetic invalid token")
 
 
 class Query:
@@ -52,25 +46,12 @@ class Query:
 
 
 class FakeSupabase:
-    def __init__(self, profile: dict | None, invalid_token: bool = False, active_batch: dict | None = None):
+    def __init__(self, profile: dict | None = None, active_batch: dict | None = None):
         self.profile = profile
-        self.invalid_token = invalid_token
         self.active_batch = active_batch
         self.auth = SimpleNamespace(
-            get_user=self.get_user,
-            admin=SimpleNamespace(create_user=self.admin_create_user),
+            get_user=lambda _token: SimpleNamespace(user=SimpleNamespace(id="admin-uuid")),
         )
-
-    def get_user(self, token: str):
-        assert token == "synthetic-token"
-        if self.invalid_token:
-            raise InvalidTokenError()
-        return SimpleNamespace(user=SimpleNamespace(id="synthetic-user-id"))
-
-    def admin_create_user(self, payload: dict):
-        if payload.get("email") == "existing@itpln.ac.id":
-            raise Exception("User already registered")
-        return SimpleNamespace(user=SimpleNamespace(id="new-registered-uuid"))
 
     def table(self, table_name: str):
         return Query(table_name, self.profile, self.active_batch)
@@ -78,145 +59,56 @@ class FakeSupabase:
 
 @pytest.fixture
 def use_fake_supabase(monkeypatch):
-    def set_client(profile=None, invalid_token=False, active_batch=None):
-        fake_client = FakeSupabase(profile, invalid_token, active_batch)
+    def set_client(profile=None, active_batch=None):
+        fake_client = FakeSupabase(profile, active_batch)
         monkeypatch.setattr(auth_module, "get_supabase", lambda: fake_client)
-        from app.api.v1.endpoints import auth as auth_endpoint, certiport, sitasi
+        from app.api.v1.endpoints import certiport, sitasi
 
-        monkeypatch.setattr(auth_endpoint, "get_supabase", lambda: fake_client)
         monkeypatch.setattr(sitasi, "get_supabase", lambda: fake_client)
         monkeypatch.setattr(certiport, "get_supabase", lambda: fake_client)
     return set_client
 
 
-
-@pytest.mark.parametrize(
-    ("method", "path"),
-    [
-        ("get", "/api/v1/auth/me"),
-        ("get", "/api/v1/sitasi"),
-        ("get", "/api/v1/sitasi/batch"),
-        ("post", "/api/v1/sitasi/import"),
-        ("get", "/api/v1/certiport"),
-        ("get", "/api/v1/certiport/batch"),
-        ("post", "/api/v1/certiport/import"),
-    ],
-)
-def test_missing_token_is_401(method, path):
-    if method == "post":
-        response = client.post(path, files={"file": ("dummy.xlsx", b"dummy")})
-    else:
-        response = client.get(path)
-    assert response.status_code == 401
+def test_default_admin_identity_without_token():
+    """Tanpa token, endpoint /auth/me otomatis mengembalikan identitas Administrator (role: admin)."""
+    response = client.get("/api/v1/auth/me")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["role"] == "admin"
+    assert "Administrator" in data["display_name"]
 
 
-def test_invalid_token_is_401(use_fake_supabase):
-    use_fake_supabase(invalid_token=True)
-    response = client.get("/api/v1/sitasi", headers={"Authorization": "Bearer synthetic-token"})
-    assert response.status_code == 401
-    assert "synthetic invalid token" not in response.text
+def test_master_endpoints_accessible_directly_as_admin(use_fake_supabase):
+    """Endpoint master data dapat diakses langsung sebagai admin tanpa login."""
+    use_fake_supabase()
+    resp_sitasi = client.get("/api/v1/sitasi")
+    resp_certiport = client.get("/api/v1/certiport")
+    assert resp_sitasi.status_code == 200
+    assert resp_certiport.status_code == 200
 
 
-def test_user_without_active_staff_profile_is_403(use_fake_supabase):
-    use_fake_supabase(profile=None)
-    response = client.get("/api/v1/auth/me", headers={"Authorization": "Bearer synthetic-token"})
-    assert response.status_code == 403
-
-
-def test_active_staff_can_access_identity_and_master_endpoint(use_fake_supabase):
-    use_fake_supabase(profile={
-        "id": "synthetic-user-id",
-        "display_name": "Petugas Dummy",
-        "role": "staff",
-        "is_active": True,
-    })
-    headers = {"Authorization": "Bearer synthetic-token"}
-
-    identity = client.get("/api/v1/auth/me", headers=headers)
-    master_data = client.get("/api/v1/sitasi", headers=headers)
-    active_batch = client.get("/api/v1/sitasi/batch", headers=headers)
-
-    assert identity.status_code == 200
-    assert identity.json()["data"]["role"] == "staff"
-    assert master_data.status_code == 200
-    assert master_data.json()["data"]["items"] == []
-    assert active_batch.status_code == 200
-    assert active_batch.json()["data"] is None
-
-
-def test_active_staff_receives_only_safe_active_batch_metadata(use_fake_supabase):
+def test_active_batch_metadata_without_leakage(use_fake_supabase):
+    """Metadata batch aktif dapat diakses admin tanpa membocorkan nama berkas."""
     use_fake_supabase(
-        profile={"id": "synthetic-user-id", "role": "staff", "is_active": True},
         active_batch={
             "id": "synthetic-batch-id",
             "data_type": "SITASI",
-            "file_name": "nama-mahasiswa.xlsx",
-            "total_rows": 4,
-            "imported_rows": 4,
+            "file_name": "data_rahasia.xlsx",
+            "total_rows": 10,
+            "imported_rows": 10,
             "status": "COMPLETED",
             "created_at": "2026-10-01T00:00:00Z",
             "completed_at": "2026-10-01T00:01:00Z",
-        },
+        }
     )
-    response = client.get("/api/v1/sitasi/batch", headers={"Authorization": "Bearer synthetic-token"})
-
+    response = client.get("/api/v1/sitasi/batch")
     assert response.status_code == 200
-    assert response.json()["data"]["imported_rows"] == 4
+    assert response.json()["data"]["imported_rows"] == 10
     assert "file_name" not in response.json()["data"]
 
 
-def test_register_staff_success(use_fake_supabase):
-    use_fake_supabase()
-    response = client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": "baru@itpln.ac.id",
-            "password": "password123",
-            "display_name": "Petugas Baru",
-        },
-    )
-    assert response.status_code == 201
-    body = response.json()
-    assert body["success"] is True
-    assert body["data"]["email"] == "baru@itpln.ac.id"
-    assert body["data"]["display_name"] == "Petugas Baru"
-    assert body["data"]["role"] == "staff"
-
-
-def test_register_staff_duplicate_email_is_400(use_fake_supabase):
-    use_fake_supabase()
-    response = client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": "existing@itpln.ac.id",
-            "password": "password123",
-            "display_name": "Petugas Duplikat",
-        },
-    )
+def test_register_endpoint_is_disabled():
+    """Endpoint registrasi dinonaktifkan karena sistem beroperasi dalam mode admin-only."""
+    response = client.post("/api/v1/auth/register", json={})
     assert response.status_code == 400
-    assert "terdaftar" in response.json()["detail"].lower()
-
-
-def test_register_staff_invalid_email_is_422():
-    response = client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": "bukan-email",
-            "password": "password123",
-            "display_name": "Petugas Salah",
-        },
-    )
-    assert response.status_code == 422
-
-
-def test_register_staff_short_password_is_422():
-    response = client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": "tes@itpln.ac.id",
-            "password": "123",
-            "display_name": "Petugas Pendek",
-        },
-    )
-    assert response.status_code == 422
-
+    assert "dinonaktifkan" in response.json()["detail"].lower()

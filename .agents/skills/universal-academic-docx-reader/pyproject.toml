@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "universal-academic-docx-reader"
+version = "0.1.0"
+description = "Local-first DOCX extraction and MCP tools for academic AI-agent workflows"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "docx2python>=3.5.0",
+  "mcp>=1.28,<2",
+  "Pillow>=10.0.0"
+]
+
+[project.optional-dependencies]
+ocr = ["pytesseract>=0.3.10"]
+dev = ["pytest>=8.0.0", "python-docx>=1.1.0"]
+
+[project.scripts]
+docx-reader = "docx_reader.cli:main"
+docx-reader-mcp = "docx_reader.mcp_server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["docx_reader"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -464,3 +464,90 @@ Penanggung jawab:
   - MCF hanya dievaluasi untuk prodi relevan (`is_mcf_relevant`, kode `31`/`32`); di luar itu `mcf_status = null`.
 - Menyesuaikan/menambah test: `test_validation_engine.py`, `test_certiport_matching.py` (kasus NIM+nama, SITASI cukup, fallback Certiport, saran nama mirip, gate MCF).
 - Bukti: `pytest tests -q` — 157 PASS.
+
+## 2026-10-14 — Pencocokan nama Certiport minimal 2 kata
+
+- Mengubah rumus pencarian kandidat Certiport di `backend/app/services/matching_service.py`:
+  - `_find_certiport_candidates_fuzzy` kini mensyaratkan nama berbagi **minimal 2 kata** (`NAME_MIN_MATCHING_WORDS`) dengan nama lengkap target; kandidat dengan kurang dari 2 kata cocok dibuang.
+  - Ditambah helper `_name_word_tokens` dan `_count_matching_name_words` (kecocokan per kata toleran typo, ambang `NAME_WORD_MATCH_THRESHOLD = 85`), sehingga `DAVID GABRIEL SEMBIRING` cocok dengan `DAVID SEMBIRING`, `DAVID GABRIEL`, `GABRIEL SEMBIRING`, `GABRIEL DAVID`.
+  - Nama target satu kata memakai batas `min(jumlah kata target, 2)` agar nama tunggal yang sah tetap dapat dicocokkan.
+  - Kandidat yang tidak lolos batas kata → bukan kandidat → mengarah ke `DATA_TIDAK_DITEMUKAN`. Kandidat yang lolos tetap `PERLU_VERIFIKASI` (bukan auto-`VALID`).
+  - Kandidat sekarang membawa field `matched_words` untuk transparansi review.
+- Menambah regression test di `backend/tests/test_certiport_matching.py` (1 kata ditolak, 2 kata lolos berbagai urutan, nama target 1 kata, pipeline `DATA_TIDAK_DITEMUKAN`).
+- Bukti: `pytest tests -q` — 161 PASS (4 test baru).
+
+## 2026-10-14 — Nama satu kata tahan tanda baca/kurung (mis. "( DAVID.)")
+
+- Menyesuaikan `backend/app/services/matching_service.py`:
+  - `_get_nama_normalized` dan `build_certiport_name_index` selalu menormalkan ulang (idempoten) nilai `nama_normalized`/`full_name_normalized` yang tersimpan, sehingga data lama berhias tanda baca seperti `( DAVID.)` tetap setara `DAVID`.
+  - `_name_word_tokens` menormalkan nama sebelum memecah token, agar token bebas tanda baca/kurung dan penghitung kata pada aturan minimal 2 kata tetap akurat.
+- Menambah regression test `backend/tests/test_certiport_matching.py` (SITASI nilai tersimpan berhias → EXACT; index Certiport berhias → ternormalkan; kandidat nama target berhias).
+- Bukti: `pytest tests -q` — 164 PASS (3 test baru).
+
+## 2026-10-14 — Detail bukti: deduplikasi sub-ujian ganda + rujukan baris xlsx
+
+- `backend/app/services/sync_service.py` (`get_sync_result_detail`):
+  - `dedupe_evidence_for_display`: bukti ganda per (kategori, sub-ujian) — akibat kandidat fuzzy Certiport ganda — hanya menampilkan yang lulus (prioritas `VALID`/PASS/`LULUS`); sisanya tetap tersimpan, dicatat di `duplicate_count`/`duplicate_ids`. Status tidak diubah.
+  - `attach_evidence_source_refs`: `sitasi_row_id`/`certiport_row_id` (id database) di-resolve ke `source_row` xlsx + `file_name` batch import (`sitasi_source_row`, `sitasi_file_name`, `certiport_source_row`, `certiport_file_name`); status/skor tampilan dikoreksi dari rekaman master (fallback lama salah melabeli record FAIL sebagai PASS).
+- `frontend/lib/api.ts` + `sinkronisasi/[id]/page.tsx`: badge sumber menjadi `data_sitasi.xlsx · Baris #X` / `data_certiport.xlsx · Baris #Y` + catatan duplikat disembunyikan.
+- Mock `MockQuery` mendukung `in_`; test baru: dedup prefer-PASS + resolve baris/file.
+- Bukti: `pytest tests -q` — 166 PASS (2 test baru); `npm run typecheck` — PASS.
+
+## 2026-10-19 — Pengesahan ADR-005 (Alias Ujian) & Perbaikan Sub-Program "Tidak Diketahui"
+
+- Pengesahan resmi ADR-005 (Ekuivalensi Alias & Versi Ujian):
+  - `docs/20_OUTPUT_MAPPING_APPROVAL.md`: Status ADR-005 diubah menjadi `DISETUJUI (APPROVED)`. Ekuivalensi ujian `Word` ~ `Word 2019` / `Microsoft Word 2019`, `Excel` ~ `Excel 2019`, dan `Azure AI-900` ~ `Microsoft Azure AI Fundamentals` disahkan resmi.
+  - `docs/14_DECISIONS.md`: ADR-005 dicatat sebagai `DIPUTUSKAN (DISETUJUI)`.
+  - `backend/app/services/matching_service.py`: `EXAM_ALIAS_STATUS` diset menjadi `"APPROVED"`. Mahasiswa yang lulus di SITASI dan lulus di Certiport dengan nama alias resmi kini otomatis berstatus `VALID` (`R01_VALID`) tanpa ditahan di `PERLU_VERIFIKASI`.
+- Perbaikan penanganan sub-program pendaftaran awal "Tidak Diketahui" di `matching_service.py`:
+  - Menambahkan `PLACEHOLDER_SUB_PROGRAMS = {"TIDAK DIKETAHUI", "UNKNOWN", "", "PENDAFTARAN", "BELUM UJIAN"}`.
+  - Pada `_build_program_summary`, jika mahasiswa telah memiliki ujian konkret yang tuntas/lulus dalam satu program sertifikasi, rekaman pendaftaran awal berkode sub-program "Tidak Diketahui" dengan status `PENDING` tidak lagi menurunkan status kelulusan program menjadi `PENDING` atau memaksa review.
+  - Kasus HENDRAWAN (`201911094`, Word LULUS skor 792) dan SYIFA ANANDA (`202111109`, Word LULUS skor 746) kini terverifikasi otomatis menjadi `VALID`.
+- Pengujian & Validasi:
+  - `backend/tests/test_certiport_matching.py`: Diperbarui untuk menguji alias berstatus APPROVED dan verifikasi status `VALID`.
+  - `backend/tests/test_validation_engine.py`: Diperbarui dan ditambah unit test `test_placeholder_tidak_diketahui_pending_does_not_override_passed_exam`.
+  - Bukti eksekusi suite test: `pytest tests -q` — 167 PASS (100% lulus, 0 fail).
+  - Sinkronisasi live: Jumlah mahasiswa VALID naik signifikan dari 16 menjadi 39 pada batch data wisuda aktual.
+
+## 2026-10-19 — Label Hasil Bahasa Manusia & Workbook Validasi Wisuda
+
+- Tujuan: apresentam hasil validasi dengan label yang bisa dibaca petugas (Lulus / Tidak Lulus / Tidak Ada) tanpa menghilangkan status ambigu, sekaligus menyediakan pratinjau isi kolom `Sertifikasi MOS`, `Sertifikasi MCF`, dan `Title Microsoft` sesuai format Opsi 1A dan 4A ADR-003.
+- `backend/app/services/matching_service.py`: menambah `STATUS_LABELS` dan `status_label()`. Pemetaan `VALID` → `Lulus`, `TIDAK_LULUS` → `Tidak Lulus`, `DATA_TIDAK_DITEMUKAN` → `Tidak Ada`, `PERLU_VERIFIKASI` → `Perlu Verifikasi`, `PENDING` → `Menunggu Hasil`. Status inti 5 nilai (AGENTS.md §4.5) tidak diubah; fungsi ini hanya lapisan tampilan. Status tak dikenal dikembalikan `-`, tidak ditebak menjadi kelulusan.
+- `backend/scripts/generate_validation_workbook.py` (baru): generator workbook pratinjau dari tiga berkas lokal (`data_wisuda.xlsx`, `data_sitasi.xlsx`, `data_certiport.xlsx`). Memakai `validate_wisuda_complete` dari service resmi sehingga logika pencocokan identik dengan backend. Menghasilkan 10 sheet: Dashboard, Ringkasan Validasi, Pratinjau Kolom Wisuda, Detail Ujian, Detail SITASI, Detail Certiport, Kandidat Nama SITASI, Tidak Ditemukan, Rekap Prodi, Catatan & Metodologi. Self-check sebelum menyimpan berkas: jumlah baris hasil harus sama dengan baris wisuda dan seluruh label harus berada dalam daftar yang diizinkan.
+- Sheet `Pratinjau Kolom Wisuda` (baru): kolom `No/Kode Prodi/Program Studi/NIM/Nama` disalin apa adanya; kolom target diisi `[DRAFT] MOS (Word 2019 - Lulus)`, `[DRAFT] MOS (Word 2019 - Tidak Lulus)`, `[DRAFT] MOS (Microsoft Azure AI Fundamentals - Lulus)`, atau `[DRAFT] Tidak Ada`. `Title Microsoft` memakai `MOS` / `MCF` / `MOS, MCF` / `—`. Nilai asli dari file wisuda ditampilkan pada kolom pembanding dan sel lama tidak ditimpa (ADR-010). MCF tidak dihitung di luar prodi kode 31 dan 32 (ADR-011).
+- `backend/tests/test_matching_service.py`: 2 test baru untuk `status_label()` (5 status baku dan status tak dikenal).
+- Bukti eksekusi: `pytest tests -q` — 169 PASS (167 lama + 2 baru). Generator dijalankan terhadap data aktual: `Lulus=39`, `Tidak Lulus=29`, `Perlu Verifikasi=81`, `Menunggu Hasil=1`, `Tidak Ada=274` dari 424 baris. Uji silang dengan 18 baris yang sudah punya teks `Sertifikasi MOS` manual pada `data_wisuda.xlsx`: 17 cocok, 1 berbeda (`202011018` dinilai `Perlu Verifikasi` karena NIM tidak ada di SITASI dan nama Certiport hanya mirip).
+- Batasan: berkas keluaran berlabel DRAFT karena ADR-003, ADR-006, ADR-010, dan ADR-011 belum ditandatangani. Berkas `*.xlsx` sudah diabaikan `.gitignore` sehingga data asli tidak masuk repository.
+
+## 2026-10-19 — Koreksi Keterangan Bukti Valid pada Sheet Detail
+
+- Masalah: pada sheet `Detail Ujian`, 6 baris ujian menampilkan keterangan "SITASI LULUS tapi Certiport FAIL; konflik sumber" (`R04_CERTIPORT_NO_PASS`) padahal bukti Certiport untuk ujian yang sama juga memuat `PASS` dengan skor identik. Contoh: `202131039` (THIO OKTAVIANTO) — SITASI `Word LULUS` skor 850, Certiport `Word 2019` FAIL 486, FAIL 381, PASS 850. Keterangan lama menyesatkan petugas karena attempt FAIL adalah percobaan lama, bukan bukti akhir.
+- Perbaikan (lapisan tampilan workbook, mesin pencocokan tidak diubah):
+  - `backend/scripts/generate_validation_workbook.py`: menambah `corrected_reason()` yang mendeteksi pola LULUS + PASS + FAIL pada ujian yang sama, lalu menetapkan kode alasan `R01_VALID` dengan keterangan berbunyi "VALID: SITASI LULUS (skor X) dan Certiport PASS (skor Y) pada ujian yang sama; ada attempt FAIL sebelumnya sehingga status tetap Perlu Verifikasi sampai petugas memastikan attempt terakhir".
+  - `corrected_row_codes()` menyelaraskan kode alasan tingkat baris di sheet `Ringkasan Validasi`; `corrected_valid_notes()` menambahkan penjelasan singkat pada kolom `Catatan Review` dan `Catatan Perbedaan` sheet pratinjau.
+  - `certiport_status_for_exam()` memperbaiki kolom `Status Certiport` pada `Detail Ujian` yang sebelumnya menampilkan `-` walau Certiport mencatat PASS/FAIL. Nilai baru: `Lulus`, `Tidak Lulus`, `Lulus + ada FAIL sebelumnya`, `Tidak Ada`, dan awalan `(perlu konfirmasi)` bila status ujian masih `Perlu Verifikasi`.
+- Status sengaja tidak dinaikkan: seluruh kolom status tetap `Perlu Verifikasi` untuk 6 baris tersebut karena petugas harus memastikan attempt terakhir (aturan §6 `docs/06_BUSINESS_RULES.md`). Sebaran status tidak berubah: `Lulus=39`, `Tidak Lulus=29`, `Perlu Verifikasi=81`, `Menunggu Hasil=1`, `Tidak Ada=274`.
+- Bukti eksekusi: `pytest tests -q` — 169 PASS. Distribusi kode alasan `Detail Ujian` berubah dari `R01_VALID=83, R04_CERTIPORT_NO_PASS=5` menjadi `R01_VALID=89, R04_CERTIPORT_NO_PASS=0`; 6 baris terkoreksi adalah `202214003`, `201921053`, `202131039`, `202131073`, `202131135`, `202131155`.
+
+## 2026-10-23 — Penyederhanaan Sistem: Admin-Only, Hapus Landing Page & Login/Register
+
+- Permintaan: Menyederhanakan sistem menjadi inti validasi data, menghapus landing page (langsung ke validasi data), peran pengguna tunggal Admin (menghapus role staff), menghapus fitur login dan register, serta menyediakan SQL pembaruan siap copy-paste di Supabase.
+- Perubahan Frontend:
+  - `frontend/app/page.tsx`: Landing page dihapus, rute utama langsung mengalihkan ke `/sinkronisasi`.
+  - `frontend/app/(dashboard)/layout.tsx`: Pengecekan auth guard `verifyStaffRoute` dihapus.
+  - `frontend/proxy.ts`: Disederhanakan untuk meneruskan permintaan dan mengalihkan `/login` ke `/sinkronisasi`.
+  - `frontend/lib/api.ts`: Fungsi `authorizedHeaders()` tidak lagi mewajibkan token sesi login.
+  - `frontend/components/dashboard-shell.tsx`: Identitas sidebar diubah menjadi Administrator ITCC (Admin) dan tombol Logout dihapus.
+  - `frontend/components/sidebar-nav.tsx`: Menu "Validasi Wisuda" ditempatkan di posisi teratas sebagai fitur utama.
+  - `frontend/app/login/page.tsx` & `frontend/app/unauthorized/page.tsx`: Dialihkan ke `/sinkronisasi`.
+- Perubahan Backend:
+  - `backend/app/core/auth.py`: `require_staff` secara default mengembalikan identitas Administrator (role: admin) tanpa mewajibkan bearer token.
+  - `backend/app/api/v1/endpoints/auth.py`: `/auth/me` mengembalikan profil Admin; `/auth/register` dinonaktifkan.
+  - `backend/app/services/sync_service.py`: Default reviewer role menjadi `"admin"` sehingga konfirmasi cocok review tidak diblokir ADR-009.
+  - `backend/tests/`: Seluruh unit test disesuaikan dengan arsitektur admin-only (158 test lulus).
+- Pembaruan Database / Supabase:
+  - `database/UPDATE_SIMPLIFY_ADMIN_ONLY.sql`: Skrip SQL migrasi siap pakai di Supabase SQL Editor.
+  - `database/SETUP_ALL_TABLES.sql`: Skrip setup master diperbarui dengan constraint `role in ('admin')` dan profil default.
+- Bukti Pengujian:
+  - Backend: `venv/Scripts/python.exe -m pytest tests -q` — 158 PASS.
+  - Frontend: `npm run typecheck` — PASS; `npm run build` — PASS.

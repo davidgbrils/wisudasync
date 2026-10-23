@@ -22,6 +22,30 @@ TIDAK_LULUS = "TIDAK_LULUS"
 PENDING = "PENDING"
 DATA_TIDAK_DITEMUKAN = "DATA_TIDAK_DITEMUKAN"
 
+# Label bahasa manusia untuk tampilan laporan/ekspor pratinjau.
+# Status inti tetap 5 nilai di atas; label ini hanya untuk presentation layer.
+STATUS_LABELS: dict[str, str] = {
+    VALID: "Lulus",
+    TIDAK_LULUS: "Tidak Lulus",
+    DATA_TIDAK_DITEMUKAN: "Tidak Ada",
+    PERLU_VERIFIKASI: "Perlu Verifikasi",
+    PENDING: "Menunggu Hasil",
+}
+
+# Label untuk status per programmatically yang belum dipetakan.
+STATUS_LABEL_UNKNOWN = "-"
+
+
+def status_label(status: Any) -> str:
+    """Terjemahkan status matching ke label bahasa manusia.
+
+    Status yang tidak dikenal (mis. None atau kode baru) tidak ditebak:
+    dikembalikan sebagai "—" supaya tidak menyesatkan pembaca laporan.
+    """
+    if status is None:
+        return STATUS_LABEL_UNKNOWN
+    return STATUS_LABELS.get(str(status).strip().upper(), STATUS_LABEL_UNKNOWN)
+
 # Nilai status SITASI (sudah uppercase saat impor, tapi normalisasi untuk robust)
 LULUS_STATUSES = {"LULUS"}
 FAIL_STATUSES = {"TIDAK LULUS", "GAGAL"}
@@ -49,6 +73,13 @@ FUZZY_THRESHOLD = 85
 FUZZY_STRONG_THRESHOLD = 95
 FUZZY_TOP_N = 5
 
+# Pencocokan nama Certiport: kandidat hanya dianggap plausibel bila nama lengkap
+# berbagi minimal 2 kata (mis. "DAVID GABRIEL SEMBIRING" ~ "DAVID SEMBIRING").
+# Kurang dari 2 kata cocok → bukan kandidat (DATA_TIDAK_DITEMUKAN).
+NAME_MIN_MATCHING_WORDS = 2
+# Toleransi typo ringan per kata saat menghitung kata yang cocok.
+NAME_WORD_MATCH_THRESHOLD = 85
+
 CATEGORY_MAP: dict[str, str] = {
     "MOS": "MICROSOFT OFFICE SPECIALIST",
     "MCF": "MICROSOFT CERTIFIED FUNDAMENTALS",
@@ -64,7 +95,16 @@ EXAM_ALIAS_DRAFT: dict[str, set[str]] = {
     "AZURE DP-900": {"MICROSOFT AZURE DATA FUNDAMENTALS"},
     "AZURE SC-900": {"MICROSOFT SECURITY COMPLIANCE AND IDENTITY FUNDAMENTALS"},
 }
-EXAM_ALIAS_STATUS = "DRAFT"
+EXAM_ALIAS_STATUS = "APPROVED"
+
+# Sub-program placeholder pendaftaran awal SITASI yang belum memiliki sub-ujian riil
+PLACEHOLDER_SUB_PROGRAMS: set[str] = {
+    "TIDAK DIKETAHUI",
+    "UNKNOWN",
+    "",
+    "PENDAFTARAN",
+    "BELUM UJIAN",
+}
 
 # Kolom yang dibutuhkan dari tabel sitasi_data
 SITASI_REQUIRED_FIELDS = (
@@ -136,12 +176,14 @@ def _normalize_sitasi_status(status: Any) -> str | None:
 def _get_nama_normalized(record: dict) -> str:
     """Dapatkan nama ter-normalisasi dari record SITASI.
 
-    Menggunakan nama_normalized yang tersimpan jika ada,
-    atau menghitung dari nama menggunakan normalize_name.
+    Selalu normalisasi ulang (idempoten) terhadap nilai tersimpan maupun kolom
+    nama mentah. Ini menjaga nama satu kata yang ditulis berhias tanda baca,
+    mis. "( DAVID.)" atau "DAVID.", tetap setara dengan "DAVID".
     """
     stored = record.get("nama_normalized")
-    if stored:
-        return str(stored).strip()
+    normalized = normalize_name(stored) if stored else None
+    if normalized:
+        return normalized
     return normalize_name(record.get("nama")) or ""
 
 
@@ -450,12 +492,15 @@ def fetch_active_certiport_rows(
 def build_certiport_name_index(
     certiport_rows: list[dict],
 ) -> dict[str, list[dict]]:
-    """Indeks nama normalized -> daftar record Certiport."""
+    """Indeks nama normalized -> daftar record Certiport.
+
+    Selalu menormalkan ulang (idempoten) nilai tersimpan agar nama berhias
+    tanda baca/kurung, mis. "( DAVID.)", tetap terindeks sebagai "DAVID".
+    """
     index: dict[str, list[dict]] = defaultdict(list)
     for row in certiport_rows:
-        name = row.get("full_name_normalized")
-        if not name:
-            name = normalize_name(row.get("full_name"))
+        raw = row.get("full_name_normalized") or row.get("full_name")
+        name = normalize_name(raw)
         if name:
             index[name].append(row)
     return dict(index)
@@ -510,15 +555,16 @@ def _is_exam_alias_match(
     if s == c:
         return True, "exact_match"
 
+    status_label = EXAM_ALIAS_STATUS.lower()
     aliases = EXAM_ALIAS_DRAFT.get(s, set())
     if c in aliases:
-        return True, f"alias_draft:{EXAM_ALIAS_STATUS}"
+        return True, f"alias_{status_label}:{EXAM_ALIAS_STATUS}"
 
     for key, val_set in EXAM_ALIAS_DRAFT.items():
         if s in val_set and c == key:
-            return True, f"alias_draft_reverse:{EXAM_ALIAS_STATUS}"
+            return True, f"alias_{status_label}_reverse:{EXAM_ALIAS_STATUS}"
         if s in val_set and c in val_set:
-            return True, f"alias_draft_both:{EXAM_ALIAS_STATUS}"
+            return True, f"alias_{status_label}_both:{EXAM_ALIAS_STATUS}"
 
     return False, "no_match"
 
@@ -540,6 +586,42 @@ def _fuzzy_name_score(target: str, candidate: str) -> int:
     )
 
 
+def _name_word_tokens(name: str) -> list[str]:
+    """Pecah nama menjadi token kata, tahan tanda baca/kurung.
+
+    Menormalkan ulang (idempoten) sehingga "( DAVID.)" dan "david" sama-sama
+    menghasilkan token ["DAVID"]. Nama satu kata tetap satu token.
+    """
+    if not name:
+        return []
+    normalized = normalize_name(name) or ""
+    return [token for token in normalized.split() if token]
+
+
+def _count_matching_name_words(
+    target: str,
+    candidate: str,
+    word_threshold: int = NAME_WORD_MATCH_THRESHOLD,
+) -> int:
+    """Hitung banyak kata target yang punya padanan kata kandidat (toleran typo).
+
+    Contoh: "DAVID GABRIEL SEMBIRING" vs "DAVID SEMBIRING" → 2 kata cocok
+    (DAVID, SEMBIRING), meski urutan atau panjang nama berbeda.
+    """
+    target_words = _name_word_tokens(target)
+    candidate_words = _name_word_tokens(candidate)
+    if not target_words or not candidate_words:
+        return 0
+    matched = 0
+    for target_word in target_words:
+        if any(
+            int(fuzz.ratio(target_word, candidate_word)) >= word_threshold
+            for candidate_word in candidate_words
+        ):
+            matched += 1
+    return matched
+
+
 def _find_certiport_candidates_fuzzy(
     target_name: str,
     certiport_index: dict[str, list[dict]],
@@ -547,20 +629,36 @@ def _find_certiport_candidates_fuzzy(
 ) -> list[dict]:
     """Cari kandidat Certiport berdasar nama normalized + skor fuzzy per kata.
 
-    Mengembalikan list of {name, score, reason, records} diurutkan score descending.
-    Nama identik (score 100) tetap dikembalikan sebagai kandidat, bukan auto-valid.
+    Kandidat hanya lolos bila nama berbagi minimal `NAME_MIN_MATCHING_WORDS` kata
+    dengan nama lengkap target. Nama pendek (mis. satu kata) memakai batas
+    min(jumlah kata target, 2) agar nama tunggal yang sah tetap bisa dicocokkan.
+    Kurang dari batas kata → bukan kandidat (mengarah ke DATA_TIDAK_DITEMUKAN).
+
+    Mengembalikan list of {name, score, reason, matched_words, records}
+    diurutkan score descending. Nama identik (score 100) tetap kandidat, bukan auto-valid.
     """
+    target_words = _name_word_tokens(target_name)
+    if not target_words:
+        return []
+
+    required_words = min(NAME_MIN_MATCHING_WORDS, len(target_words))
+
     candidates: list[dict] = []
     for name, records in certiport_index.items():
         score = _fuzzy_name_score(target_name, name)
-        if score >= threshold:
-            reason = "exact_name" if name == target_name else "fuzzy_candidate"
-            candidates.append({
-                "name": name,
-                "score": score,
-                "reason": reason,
-                "records": records,
-            })
+        if score < threshold:
+            continue
+        matched_words = _count_matching_name_words(target_name, name)
+        if matched_words < required_words:
+            continue
+        reason = "exact_name" if name == target_name else "fuzzy_candidate"
+        candidates.append({
+            "name": name,
+            "score": score,
+            "reason": reason,
+            "matched_words": matched_words,
+            "records": records,
+        })
     candidates.sort(key=lambda c: c["score"], reverse=True)
     return candidates
 
@@ -1048,16 +1146,31 @@ def _build_program_summary(exams: list[dict]) -> dict[str, dict]:
         program_scores: list[float | int] = []
         exam_scores_map: dict[str, Any] = {}
 
+        # Cek apakah ada ujian konkret (bukan placeholder pendaftaran) pada program ini
+        has_concrete_exams = any(
+            (normalize_upper(e.get("sub_program")) or "") not in PLACEHOLDER_SUB_PROGRAMS
+            for e in program_exams
+        )
+
         for exam in program_exams:
             cv = exam.get("certiport_validation", {})
             combined = cv.get("combined_status", exam.get("exam_status", PERLU_VERIFIKASI))
-            statuses.append(combined)
 
             rc = _classify_reason_code(cv, exam.get("_certiport_match_ref"))
-            reason_codes.append(rc)
 
-            if combined != VALID:
-                needs_review = True
+            sub_name = exam.get("sub_program", "")
+            sub_norm = normalize_upper(sub_name) or ""
+            is_placeholder_pending = (sub_norm in PLACEHOLDER_SUB_PROGRAMS) and (
+                combined == PENDING or exam.get("has_pending")
+            )
+
+            # Jika mahasiswa sudah memiliki ujian konkret, rekaman pendaftaran awal (Tidak Diketahui / PENDING)
+            # tidak boleh menurunkan status program menjadi PENDING atau memaksa needs_review.
+            if not (has_concrete_exams and is_placeholder_pending):
+                statuses.append(combined)
+                reason_codes.append(rc)
+                if combined != VALID:
+                    needs_review = True
 
             is_cert_only = exam.get("certiport_only", False)
             sit_score = None if is_cert_only else exam.get("score")

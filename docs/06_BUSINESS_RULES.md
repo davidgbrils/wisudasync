@@ -38,8 +38,10 @@ flowchart TD
 2. `ALTERNATIVE_SITASI`: nama Certiport cocok dengan nama SITASI walaupun nama Wisuda lebih panjang/singkat; perbedaan Wisuda↔SITASI tetap dicatat.
 3. `FUZZY_CANDIDATE`: RapidFuzz memberi daftar kandidat **maksimal beberapa orang**, hanya untuk petugas.
 4. `NO_CANDIDATE` atau `MULTIPLE_CANDIDATES`: tidak ada atau lebih dari satu kandidat yang masuk akal.
+5. `MIN_TWO_WORDS`: kandidat Certiport hanya dianggap plausibel bila nama lengkap berbagi **minimal 2 kata** dengan nama target (contoh: `DAVID GABRIEL SEMBIRING` ⟷ `DAVID SEMBIRING`, `DAVID GABRIEL`, `GABRIEL SEMBIRING`, `GABRIEL DAVID`). Kandidat dengan kurang dari 2 kata cocok **bukan kandidat** dan mengarah ke `DATA_TIDAK_DITEMUKAN`. Nama target yang hanya satu kata memakai batas 1 kata agar nama tunggal yang sah tetap dapat dicocokkan.
+6. `DECORATION_FOLD`: tanda baca dan kurung diabaikan saat normalisasi, sehingga `( DAVID.)`, `DAVID.`, dan `david` setara dengan `DAVID`. Nilai `nama_normalized`/`full_name_normalized` yang tersimpan dinormalkan ulang (idempoten) agar data lama yang masih berhias tanda baca tetap cocok untuk nama satu kata.
 
-**Kebijakan default:** Jangan membuat threshold fuzzy sebagai ketetapan bisnis. Threshold (contoh usulan `>=90`, bukan fakta kelayakan) dipakai untuk menampilkan kandidat, dan dievaluasi pada test. Tidak boleh digunakan sendirian untuk menetapkan `VALID`.
+**Kebijakan default:** Jangan membuat threshold fuzzy sebagai ketetapan bisnis. Threshold (contoh usulan `>=90`, bukan fakta kelayakan) dipakai untuk menampilkan kandidat, dan dievaluasi pada test. Tidak boleh digunakan sendirian untuk menetapkan `VALID`. Kandidat yang lolos `MIN_TWO_WORDS` tetap berstatus `PERLU_VERIFIKASI` (bukan `VALID`) sampai ada bukti kuat (nama tepat & unik atau NIM+nama SITASI).
 
 ## 4. Kategori & kesetaraan ujian
 Mapping kategori kandidat:

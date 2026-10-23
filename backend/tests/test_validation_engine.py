@@ -350,10 +350,10 @@ def test_similar_name_suggestions_in_review_flags():
 
 
 # ===================================================================
-# DRAFT alias prevents VALID even with matching results
+# APPROVED alias (ADR-005) produces VALID in validation engine
 # ===================================================================
 
-def test_draft_alias_prevents_valid_in_validation_engine():
+def test_approved_alias_produces_valid_in_validation_engine():
     r = _validate(
         [wisuda_row()],
         [sitasi_row(sertifikasi="MOS", sub_program="Word", status="LULUS")],
@@ -364,10 +364,34 @@ def test_draft_alias_prevents_valid_in_validation_engine():
             result="Pass",
         )],
     )[0]
-    assert r["mos_status"] == PERLU_VERIFIKASI
-    assert r["validation_status"] == PERLU_VERIFIKASI
-    assert "R02_DRAFT_ALIAS" in r["reason_codes"]
-    assert r["needs_review"] is True
+    assert r["mos_status"] == VALID
+    assert r["validation_status"] == VALID
+    assert "R01_VALID" in r["reason_codes"]
+    assert r["needs_review"] is False
+
+
+def test_placeholder_tidak_diketahui_pending_does_not_override_passed_exam():
+    # Kasus seperti HENDRAWAN: Pendaftaran awal "Tidak Diketahui" (PENDING)
+    # tidak boleh menimpa ujian kelulusan riil "Word" (LULUS / skor 792)
+    r = _validate(
+        [wisuda_row(nim="201911094", nama="HENDRAWAN")],
+        [
+            sitasi_row(id=1, nim="201911094", nama="HENDRAWAN", sertifikasi="MOS", sub_program="Tidak Diketahui", status="PENDING", nilai=None),
+            sitasi_row(id=2, nim="201911094", nama="HENDRAWAN", sertifikasi="MOS", sub_program="Word", status="LULUS", nilai=792),
+        ],
+        [certiport_row(
+            full_name="HENDRAWAN",
+            program_name="Microsoft Office Specialist",
+            certification_name="Word 2019",
+            score=792,
+            result="Pass",
+        )],
+    )[0]
+    assert r["mos_status"] == VALID
+    assert r["validation_status"] == VALID
+    assert r["needs_review"] is False
+    assert "R01_VALID" in r["reason_codes"]
+    assert r["mos_score"] == 792
 
 
 # ===================================================================

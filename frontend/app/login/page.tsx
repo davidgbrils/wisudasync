@@ -1,10 +1,5 @@
-import LoginForm from "@/components/login-form";
+import { redirect } from "next/navigation";
 
-export default async function LoginPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ mode?: string }>;
-}) {
-  const params = await searchParams;
-  return <LoginForm initialMode={params.mode === "register" ? "register" : "login"} />;
+export default function LoginPage() {
+  redirect("/sinkronisasi");
 }

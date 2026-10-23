@@ -88,16 +88,16 @@ def test_alias_exact_match():
     assert reason == "exact_match"
 
 
-def test_alias_draft_forward():
+def test_alias_approved_forward():
     ok, reason = _is_exam_alias_match("Word", "Word 2019")
     assert ok
-    assert "draft" in reason.lower()
+    assert "approved" in reason.lower()
 
 
-def test_alias_draft_reverse():
+def test_alias_approved_reverse():
     ok, reason = _is_exam_alias_match("Word", "Microsoft Word 2019")
     assert ok
-    assert "draft" in reason.lower()
+    assert "approved" in reason.lower()
 
 
 def test_alias_no_match_different_exam():
@@ -108,7 +108,7 @@ def test_alias_no_match_different_exam():
 def test_alias_azure():
     ok, reason = _is_exam_alias_match("Azure AI-900", "Microsoft Azure AI Fundamentals")
     assert ok
-    assert "draft" in reason.lower()
+    assert "approved" in reason.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +146,87 @@ def test_fuzzy_below_threshold_no_candidate():
 
 
 # ---------------------------------------------------------------------------
+# Aturan minimal 2 kata pada pencocokan nama Certiport
+# ---------------------------------------------------------------------------
+
+def test_single_word_overlap_rejected():
+    # "FADILLAH" hanya 1 kata cocok dari "NUR AULIYA FADILLAH" → bukan kandidat.
+    index = build_certiport_name_index([certiport_row(full_name="FADILLAH")])
+    candidates = _find_certiport_candidates_fuzzy(normalize_name("NUR AULIYA FADILLAH"), index)
+    assert candidates == []
+
+
+def test_two_word_overlap_accepted_any_order():
+    target = normalize_name("DAVID GABRIEL SEMBIRING")
+    for candidate_name in ("DAVID SEMBIRING", "DAVID GABRIEL", "GABRIEL SEMBIRING", "GABRIEL DAVID"):
+        index = build_certiport_name_index([certiport_row(full_name=candidate_name)])
+        candidates = _find_certiport_candidates_fuzzy(target, index)
+        assert len(candidates) == 1, candidate_name
+        assert candidates[0]["matched_words"] >= 2
+
+
+def test_single_word_target_name_still_matches():
+    # Nama target hanya satu kata → batas kata mengikuti panjangnya (min 1).
+    index = build_certiport_name_index([certiport_row(full_name="SITI")])
+    candidates = _find_certiport_candidates_fuzzy(normalize_name("SITI"), index)
+    assert len(candidates) == 1
+
+
+def test_single_word_overlap_not_found_pipeline():
+    # Tanpa 2 kata cocok → bukan kandidat; tidak ada di SITASI → DATA_TIDAK_DITEMUKAN.
+    wisuda = [wisuda_row(nim="999999999", nama="NUR AULIYA FADILLAH")]
+    sitasi = [sitasi_row(nim="209900001", nama="ORANG LAIN")]
+    certiport = [certiport_row(full_name="FADILLAH", certification_name="Word", result="Pass")]
+    results = _run_pipeline(wisuda, sitasi, certiport)
+    r = results[0]
+    assert r["certiport_match"]["status"] == DATA_TIDAK_DITEMUKAN
+    assert r["overall_status"] == DATA_TIDAK_DITEMUKAN
+
+
+# ---------------------------------------------------------------------------
+# Nama satu kata dengan hiasan tanda baca/kurung, mis. "( DAVID.)"
+# ---------------------------------------------------------------------------
+
+def test_stored_normalized_with_decoration_still_matches_sitasi():
+    # Nilai tersimpan masih berhias "( DAVID.)"; nama 1 kata harus tetap EXACT.
+    wisuda = [wisuda_row(nama="DAVID")]
+    sitasi = [{
+        "id": 1,
+        "source_row": 2,
+        "nim": "209900001",
+        "nama": "( DAVID.)",
+        "nama_normalized": "( DAVID.)",
+        "sertifikasi": "MOS",
+        "sub_program": "Word",
+        "nilai": 700,
+        "status": "LULUS",
+    }]
+    results = match_wisuda_to_sitasi(wisuda, sitasi, import_id="sit-batch")
+    assert results[0]["name_match"] == "EXACT"
+    assert results[0]["sitasi_matched"] is True
+
+
+def test_certiport_index_strips_stored_decoration():
+    index = build_certiport_name_index([{
+        "id": 1,
+        "source_row": 2,
+        "full_name": "( DAVID.)",
+        "full_name_normalized": "( DAVID.)",
+        "program_name": "Microsoft Office Specialist",
+        "certification_name": "Word",
+        "score": 700,
+        "result": "Pass",
+    }])
+    assert normalize_name("DAVID") in index
+
+
+def test_single_word_target_matches_decorated_candidate():
+    index = build_certiport_name_index([certiport_row(full_name="DAVID")])
+    candidates = _find_certiport_candidates_fuzzy("( DAVID.)", index)
+    assert len(candidates) == 1
+
+
+# ---------------------------------------------------------------------------
 # Full pipeline: happy path VALID
 # ---------------------------------------------------------------------------
 
@@ -167,10 +248,10 @@ def test_valid_sitasi_lulus_certiport_pass_exact_alias():
 
 
 # ---------------------------------------------------------------------------
-# DRAFT alias => PERLU_VERIFIKASI even when both pass
+# APPROVED alias (ADR-005) => VALID saat SITASI LULUS dan Certiport PASS
 # ---------------------------------------------------------------------------
 
-def test_draft_alias_forces_perlu_verifikasi():
+def test_approved_alias_results_in_valid():
     wisuda = [wisuda_row(nama="MAHASISWA CONTOH")]
     sitasi = [sitasi_row(sertifikasi="MOS", sub_program="Word", status="LULUS")]
     certiport = [certiport_row(
@@ -181,8 +262,8 @@ def test_draft_alias_forces_perlu_verifikasi():
     )]
     results = _run_pipeline(wisuda, sitasi, certiport)
     cv = results[0]["exams"][0]["certiport_validation"]
-    assert cv["combined_status"] == PERLU_VERIFIKASI
-    assert "DRAFT" in cv["reason"] or "draft" in cv["reason"].lower()
+    assert cv["combined_status"] == VALID
+    assert "SITASI LULUS" in cv["reason"]
 
 
 # ---------------------------------------------------------------------------

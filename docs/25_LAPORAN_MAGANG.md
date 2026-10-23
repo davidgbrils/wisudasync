@@ -13,7 +13,7 @@ Penyelesaian administrasi wisuda membutuhkan verifikasi sertifikasi kompetensi m
 
 Proses pemeriksaan manual lintas berkas rentan menimbulkan kesalahan. Satu NIM kerap memiliki beberapa rekaman attempt ujian dengan status kelulusan berbeda. Selain itu, penulisan nama peserta pada Certiport sering memiliki variasi kapitalisasi, singkatan, atau tanda baca, sementara penamaan modul ujian tidak selalu identik antara kedua sistem sumber.
 
-Sistem ini dibangun untuk membantu staf memproses pencocokan data secara berulang, terdokumentasi, dan tetap memberi ruang keputusan verifikasi manual. Pencocokan utama dilakukan berdasarkan exact NIM terhadap basis data SITASI, sedangkan data Certiport digunakan sebagai verifikasi sekunder melalui kecocokan nama ternormalisasi dan modul ujian. Seluruh baris yang ambigu ditandai agar ditinjau langsung oleh petugas. Laporan ini tidak mencantumkan klaim efisiensi waktu karena belum dilakukan pengukuran empiris di lapangan.
+Sistem ini dibangun untuk membantu staf memproses pencocokan data secara berulang, terdokumentasi, dan tetap memberi ruang keputusan verifikasi manual. Pencocokan utama dilakukan berdasarkan exact NIM terhadap basis data SITASI, sedangkunivan data Certiport digunakan sebagai verifikasi sekunder melalui kecocokan nama ternormalisasi dan modul ujian. Seluruh baris yang ambigu ditandai agar ditinjau langsung oleh petugas. Laporan ini tidak mencantumkan klaim efisiensi waktu karena belum dilakukan pengukuran empiris di lapangan.
 
 ### 1.2 Rumusan Masalah
 1. Bagaimana merancang dan membangun aplikasi web pengolah workbook wisuda berbasis integrasi SITASI dan Certiport?
