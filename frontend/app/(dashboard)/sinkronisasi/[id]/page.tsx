@@ -170,19 +170,60 @@ function renderSourceScores(programData: unknown) {
 function renderTitleMicrosoft(
   mosStatus: string | null | undefined,
   mcfStatus: string | null | undefined,
-  kodeProdi: string
+  kodeProdi: string,
+  mcfPrograms?: unknown,
 ) {
   const mosLulus = mosStatus?.toUpperCase() === "VALID";
   const mcfLulus = mcfStatus?.toUpperCase() === "VALID";
   const mcfRelevant = isMcfRelevant(kodeProdi);
 
-  if (!mosLulus && (!mcfRelevant || !mcfLulus)) {
+  let hasMcfLulus = false;
+  let hasMtcnaLulus = false;
+  if (mcfRelevant && mcfLulus) {
+    if (mcfPrograms && typeof mcfPrograms === "object") {
+      const data = mcfPrograms as {
+        exam_details?: Array<{
+          sub_program?: string;
+          sertifikasi?: string;
+          combined_status?: string;
+          has_lulus?: boolean;
+          sitasi_status?: string;
+          certiport_status?: string;
+        }>;
+      };
+      if (Array.isArray(data.exam_details) && data.exam_details.length > 0) {
+        for (const ed of data.exam_details) {
+          const cert = (ed.sertifikasi || ed.sub_program || "").toUpperCase();
+          const valid = (
+            ed.combined_status === "VALID" ||
+            ed.has_lulus === true ||
+            ed.sitasi_status?.toUpperCase() === "LULUS" ||
+            ed.certiport_status?.toUpperCase() === "PASS"
+          );
+          if (valid) {
+            if (cert.includes("MTCNA")) {
+              hasMtcnaLulus = true;
+            } else {
+              hasMcfLulus = true;
+            }
+          }
+        }
+      } else {
+        hasMcfLulus = true;
+      }
+    } else {
+      hasMcfLulus = true;
+    }
+  }
+
+  if (!mosLulus && !hasMcfLulus && !hasMtcnaLulus) {
     return <span className="text-[11px] text-[#66736F]">—</span>;
   }
 
   const titles: string[] = [];
   if (mosLulus) titles.push("MOS");
-  if (mcfRelevant && mcfLulus) titles.push("MCF");
+  if (hasMcfLulus) titles.push("MCF");
+  if (hasMtcnaLulus) titles.push("MTCNA");
 
   return <span className="text-[11px] font-medium text-[#172321]">{titles.join(", ")}</span>;
 }
@@ -203,7 +244,7 @@ export default function SyncResultDetailPage({
   const [limit] = useState(25);
 
   const [statusFilter, setStatusFilter] = useState<string>("");
-  const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
+  const [programFilter, setProgramFilter] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
 
@@ -245,7 +286,7 @@ export default function SyncResultDetailPage({
           limit,
           status: statusFilter || undefined,
           search: activeSearch || undefined,
-          needs_review: needsReviewOnly ? true : undefined,
+          program: programFilter || undefined,
         });
         setResults(res.data.items);
         setTotal(res.data.total);
@@ -256,7 +297,7 @@ export default function SyncResultDetailPage({
       }
     }
     loadResults();
-  }, [sessionId, page, limit, statusFilter, activeSearch, needsReviewOnly]);
+  }, [sessionId, page, limit, statusFilter, programFilter, activeSearch]);
 
   async function openDetailModal(item: SyncResultItem) {
     setLoadingDetail(true);
@@ -449,25 +490,49 @@ export default function SyncResultDetailPage({
         )}
       </header>
 
-      {/* KPI Cards */}
+      {/* KPI Cards (Interaktif sebagai tombol filter cepat) */}
       {session && (
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
-          <div className="rounded-2xl border border-[#DDE4E1] bg-white p-4 sm:p-5 shadow-xs">
+          <button
+            type="button"
+            onClick={() => { setStatusFilter(""); setPage(1); }}
+            className={`text-left rounded-2xl border bg-white p-4 sm:p-5 shadow-xs transition-all hover:border-[#0F766E]/50 focus:outline-none ${
+              statusFilter === "" ? "border-[#0F766E] ring-2 ring-[#0F766E]/20" : "border-[#DDE4E1]"
+            }`}
+          >
             <dt className="text-[11px] font-semibold uppercase tracking-wider text-[#66736F]">Total Mahasiswa</dt>
             <dd className="mt-1 text-2xl sm:text-3xl font-bold tabular-nums text-[#172321]">{session.total_rows.toLocaleString("id-ID")}</dd>
-          </div>
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5 shadow-xs">
+          </button>
+          <button
+            type="button"
+            onClick={() => { setStatusFilter(statusFilter === "VALID" ? "" : "VALID"); setPage(1); }}
+            className={`text-left rounded-2xl border bg-emerald-50/40 p-4 sm:p-5 shadow-xs transition-all hover:border-emerald-400 focus:outline-none ${
+              statusFilter === "VALID" ? "border-emerald-600 ring-2 ring-emerald-500/30" : "border-emerald-200"
+            }`}
+          >
             <dt className="text-[11px] font-semibold uppercase tracking-wider text-emerald-800">Valid (Siap)</dt>
             <dd className="mt-1 text-2xl sm:text-3xl font-bold tabular-nums text-emerald-900">{session.total_valid.toLocaleString("id-ID")}</dd>
-          </div>
-          <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-4 sm:p-5 shadow-xs">
+          </button>
+          <button
+            type="button"
+            onClick={() => { setStatusFilter(statusFilter === "PERLU_VERIFIKASI" ? "" : "PERLU_VERIFIKASI"); setPage(1); }}
+            className={`text-left rounded-2xl border bg-amber-50/40 p-4 sm:p-5 shadow-xs transition-all hover:border-amber-400 focus:outline-none ${
+              statusFilter === "PERLU_VERIFIKASI" ? "border-amber-600 ring-2 ring-amber-500/30" : "border-amber-200"
+            }`}
+          >
             <dt className="text-[11px] font-semibold uppercase tracking-wider text-amber-900">Perlu Verifikasi</dt>
             <dd className="mt-1 text-2xl sm:text-3xl font-bold tabular-nums text-amber-950">{session.total_review.toLocaleString("id-ID")}</dd>
-          </div>
-          <div className="rounded-2xl border border-[#DDE4E1] bg-[#F5F7F6] p-4 sm:p-5 shadow-xs">
+          </button>
+          <button
+            type="button"
+            onClick={() => { setStatusFilter(statusFilter === "DATA_TIDAK_DITEMUKAN" ? "" : "DATA_TIDAK_DITEMUKAN"); setPage(1); }}
+            className={`text-left rounded-2xl border bg-[#F5F7F6] p-4 sm:p-5 shadow-xs transition-all hover:border-slate-400 focus:outline-none ${
+              statusFilter === "DATA_TIDAK_DITEMUKAN" ? "border-slate-600 ring-2 ring-slate-500/30" : "border-[#DDE4E1]"
+            }`}
+          >
             <dt className="text-[11px] font-semibold uppercase tracking-wider text-[#66736F]">Tidak Ditemukan</dt>
             <dd className="mt-1 text-2xl sm:text-3xl font-bold tabular-nums text-[#172321]">{session.total_not_found.toLocaleString("id-ID")}</dd>
-          </div>
+          </button>
         </dl>
       )}
 
@@ -529,33 +594,46 @@ export default function SyncResultDetailPage({
           )}
         </form>
 
-        <div className="flex flex-wrap items-center gap-4">
-          <label className="flex items-center gap-2 text-xs font-medium text-[#172321] cursor-pointer">
-            <input
-              type="checkbox"
-              checked={needsReviewOnly}
-              onChange={(e) => { setNeedsReviewOnly(e.target.checked); setPage(1); }}
-              className="h-4 w-4 rounded border-[#DDE4E1] text-[#0F766E] focus:ring-[#0F766E]"
-            />
-            Hanya Perlu Review
-          </label>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="filter-program" className="text-xs font-medium text-[#66736F]">Program:</label>
+            <select
+              id="filter-program"
+              value={programFilter}
+              onChange={(e) => { setProgramFilter(e.target.value); setPage(1); }}
+              className="rounded-lg border border-[#DDE4E1] bg-white px-2.5 py-1.5 text-xs font-medium text-[#172321] focus:border-[#0F766E] focus:outline-none focus:ring-1 focus:ring-[#0F766E]"
+            >
+              <option value="">Semua Program</option>
+              <option value="MOS">MOS</option>
+              <option value="MCF">MCF</option>
+              <option value="MTCNA">MTCNA</option>
+            </select>
+          </div>
 
-          <div className="flex items-center gap-2">
-            <label htmlFor="filter-status" className="text-xs text-[#66736F]">Status:</label>
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="filter-status" className="text-xs font-medium text-[#66736F]">Status Hasil:</label>
             <select
               id="filter-status"
               value={statusFilter}
               onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-              className="rounded-lg border border-[#DDE4E1] bg-white px-2.5 py-1.5 text-xs text-[#172321] focus:border-[#0F766E] focus:outline-none focus:ring-1 focus:ring-[#0F766E]"
+              className="rounded-lg border border-[#DDE4E1] bg-white px-2.5 py-1.5 text-xs font-medium text-[#172321] focus:border-[#0F766E] focus:outline-none focus:ring-1 focus:ring-[#0F766E]"
             >
-              <option value="">Semua Status</option>
-              <option value="VALID">VALID</option>
-              <option value="PERLU_VERIFIKASI">PERLU VERIFIKASI</option>
-              <option value="TIDAK_LULUS">TIDAK LULUS</option>
-              <option value="PENDING">PENDING</option>
-              <option value="DATA_TIDAK_DITEMUKAN">DATA TIDAK DITEMUKAN</option>
+              <option value="">Semua Status ({session?.total_rows ?? 0})</option>
+              <option value="VALID">Valid ({session?.total_valid ?? 0})</option>
+              <option value="PERLU_VERIFIKASI">Perlu Verifikasi ({session?.total_review ?? 0})</option>
+              <option value="DATA_TIDAK_DITEMUKAN">Tidak Ditemukan ({session?.total_not_found ?? 0})</option>
             </select>
           </div>
+
+          {(statusFilter || programFilter) && (
+            <button
+              type="button"
+              onClick={() => { setStatusFilter(""); setProgramFilter(""); setPage(1); }}
+              className="rounded-lg border border-[#DDE4E1] bg-white px-2.5 py-1.5 text-xs font-medium text-[#66736F] hover:bg-[#F5F7F6] hover:text-[#172321]"
+            >
+              Reset Filter
+            </button>
+          )}
         </div>
       </div>
 
@@ -577,8 +655,8 @@ export default function SyncResultDetailPage({
               <th scope="col" className="px-3 py-3 w-24">NIM</th>
               <th scope="col" className="px-3 py-3">Nama</th>
               <th scope="col" className="px-3 py-3">Sertifikasi MOS</th>
-              <th scope="col" className="px-3 py-3">Sertifikasi MCF</th>
-              <th scope="col" className="px-3 py-3">Title Microsoft</th>
+              <th scope="col" className="px-3 py-3">Sertifikasi MCF/MTCNA</th>
+              <th scope="col" className="px-3 py-3">Title</th>
               <th scope="col" className="px-3 py-3 text-right w-20">Aksi</th>
             </tr>
           </thead>
@@ -619,6 +697,16 @@ export default function SyncResultDetailPage({
                     {row.nama_sitasi && row.nama_sitasi !== row.nama_wisuda && (
                       <div className="text-[11px] text-[#66736F]">SITASI: {row.nama_sitasi}</div>
                     )}
+                    {(row.validation_status === "PERLU_VERIFIKASI" || row.needs_review) && row.validation_status !== "DATA_TIDAK_DITEMUKAN" && (
+                      <span className="mt-1 inline-block rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900">
+                        Perlu Verifikasi
+                      </span>
+                    )}
+                    {row.validation_status === "DATA_TIDAK_DITEMUKAN" && (
+                      <span className="mt-1 inline-block rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
+                        Tidak Ditemukan
+                      </span>
+                    )}
                   </td>
 
                   {/* Kolom Sertifikasi MOS: status + skor SITASI & Certiport */}
@@ -649,7 +737,7 @@ export default function SyncResultDetailPage({
 
                   {/* Kolom Title Microsoft */}
                   <td className="px-3 py-3 align-top">
-                    {renderTitleMicrosoft(row.mos_status, row.mcf_status, kodeProdi)}
+                    {renderTitleMicrosoft(row.mos_status, row.mcf_status, kodeProdi, mcfProg)}
                   </td>
 
                   <td className="px-3 py-3 align-top text-right">
@@ -790,7 +878,7 @@ export default function SyncResultDetailPage({
 
                 <div className="rounded-xl border border-[#DDE4E1] bg-[#F5F7F6]/70 p-3.5 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-[#172321]">Sertifikasi MCF</span>
+                    <span className="font-bold text-[#172321]">Sertifikasi MCF/MTCNA</span>
                     <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass(selectedResult.mcf_status)}`}>
                       {formatStatusLabel(selectedResult.mcf_status)}
                     </span>
@@ -1044,9 +1132,9 @@ export default function SyncResultDetailPage({
                       onChange={(e) => setReviewTarget(e.target.value)}
                       className="w-full rounded-lg border border-[#DDE4E1] bg-white px-3 py-1.5 text-xs text-[#172321] focus:border-[#0F766E] focus:outline-none"
                     >
-                      <option value="ALL">Semua Program (MOS & MCF)</option>
+                      <option value="ALL">Semua Program (MOS & MCF/MTCNA)</option>
                       <option value="MOS">Hanya Sertifikasi MOS</option>
-                      <option value="MCF">Hanya Sertifikasi MCF</option>
+                      <option value="MCF">Hanya Sertifikasi MCF/MTCNA</option>
                     </select>
                   </div>
                 )}

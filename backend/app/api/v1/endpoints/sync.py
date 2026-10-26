@@ -126,8 +126,9 @@ def get_session_results(
     status: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
     needs_review: Optional[bool] = Query(default=None),
+    program: Optional[str] = Query(default=None),
 ):
-    """Daftar baris hasil sinkronisasi dengan paginasi, pencarian, dan filter status."""
+    """Daftar baris hasil sinkronisasi dengan paginasi, pencarian, dan filter status/program."""
     try:
         results = list_sync_results(
             get_supabase(),
@@ -137,6 +138,7 @@ def get_session_results(
             status=status,
             search=search,
             needs_review=needs_review,
+            program=program,
         )
         return {"success": True, "data": results}
     except SyncSessionNotFoundError as exc:

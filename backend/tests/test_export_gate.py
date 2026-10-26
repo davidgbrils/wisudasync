@@ -83,7 +83,7 @@ def test_export_final_fills_only_passed_rows(mock_supabase_for_export):
     assert len(rows) == 3  # Header + 2 data rows
 
     headers = rows[0]
-    assert headers[5:8] == ("Sertifikasi MOS", "Sertifikasi MCF", "Title Microsoft")
+    assert headers[5:8] == ("Sertifikasi MOS", "Sertifikasi MCF/MTCNA", "Title")
 
     # Baris lulus: terisi.
     row1 = rows[1]
@@ -113,7 +113,7 @@ def test_export_draft_generates_valid_workbook_with_draft_labels(mock_supabase_f
     assert len(rows) == 3
 
     headers = rows[0]
-    assert headers[5:8] == ("Sertifikasi MOS", "Sertifikasi MCF", "Title Microsoft")
+    assert headers[5:8] == ("Sertifikasi MOS", "Sertifikasi MCF/MTCNA", "Title")
 
     # Baris lulus: berlabel DRAFT.
     row1 = rows[1]

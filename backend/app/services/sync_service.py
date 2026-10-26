@@ -167,7 +167,11 @@ def create_and_execute_sync(
 
             prog_summary = r.get("program_summary", {})
             mos_programs = prog_summary.get("MOS")
-            mcf_programs = prog_summary.get("MCF")
+            mcf_programs = (
+                prog_summary.get("MCF_COMBINED")
+                or prog_summary.get("MCF")
+                or prog_summary.get("MTCNA")
+            )
 
             nama_sitasi = None
             exams = r.get("exams", [])
@@ -330,6 +334,41 @@ def get_sync_session(
     return response.data[0]
 
 
+def _row_has_program(r: dict, prog_code: str) -> bool:
+    """Periksa apakah baris hasil sinkronisasi memuat program sertifikasi tertentu."""
+    code = prog_code.strip().upper()
+    if code == "MOS":
+        mos_stat = str(r.get("mos_status") or "").upper()
+        if mos_stat and mos_stat != "DATA_TIDAK_DITEMUKAN":
+            return True
+        mos_p = r.get("mos_programs")
+        if isinstance(mos_p, dict) and (mos_p.get("exam_details") or mos_p.get("scores") or mos_p.get("score") is not None):
+            return True
+        return False
+    elif code == "MTCNA":
+        mcf_p = r.get("mcf_programs")
+        if isinstance(mcf_p, dict):
+            for ed in mcf_p.get("exam_details") or []:
+                cert = str(ed.get("sertifikasi") or ed.get("sub_program") or "").upper()
+                if "MTCNA" in cert:
+                    return True
+        return False
+    elif code == "MCF":
+        mcf_p = r.get("mcf_programs")
+        if isinstance(mcf_p, dict):
+            for ed in mcf_p.get("exam_details") or []:
+                cert = str(ed.get("sertifikasi") or ed.get("sub_program") or "").upper()
+                if any(k in cert for k in ("MCF", "AZURE", "AI-900", "AZ-900", "SC-900", "DP-900", "PL-900", "MS-900")):
+                    return True
+            if not any("MTCNA" in str(ed.get("sertifikasi") or ed.get("sub_program") or "").upper() for ed in (mcf_p.get("exam_details") or [])):
+                if r.get("mcf_status") and r.get("mcf_status") != "DATA_TIDAK_DITEMUKAN":
+                    return True
+        elif r.get("mcf_status") and r.get("mcf_status") != "DATA_TIDAK_DITEMUKAN":
+            return True
+        return False
+    return True
+
+
 def list_sync_results(
     supabase: Client,
     session_id: str,
@@ -338,8 +377,9 @@ def list_sync_results(
     status: str | None = None,
     search: str | None = None,
     needs_review: bool | None = None,
+    program: str | None = None,
 ) -> dict:
-    """Ambil daftar hasil per baris dengan paginasi dan filter."""
+    """Ambil daftar hasil per baris dengan paginasi dan filter status serta program."""
     get_sync_session(supabase, session_id)
 
     limit = max(1, min(limit, 100))
@@ -352,7 +392,11 @@ def list_sync_results(
     )
 
     if status:
-        query = query.eq("validation_status", status.strip().upper())
+        status_clean = status.strip().upper()
+        if status_clean == PERLU_VERIFIKASI:
+            query = query.in_("validation_status", [PERLU_VERIFIKASI, TIDAK_LULUS])
+        else:
+            query = query.eq("validation_status", status_clean)
 
     if needs_review is not None:
         query = query.eq("needs_review", needs_review)
@@ -361,17 +405,25 @@ def list_sync_results(
         s = search.strip()
         query = query.or_(f"nim.ilike.%{s}%,nama_wisuda.ilike.%{s}%")
 
-    query = query.order("source_row", desc=False).range(offset, offset + limit - 1)
-    response = query.execute()
+    if program:
+        # Ambil seluruh record yang cocok dengan filter dasar, lalu saring berdasarkan program
+        query = query.order("source_row", desc=False)
+        response = query.execute()
+        all_items = response.data or []
+        filtered_items = [it for it in all_items if _row_has_program(it, program)]
+        total = len(filtered_items)
+        items = filtered_items[offset : offset + limit]
+    else:
+        query = query.order("source_row", desc=False).range(offset, offset + limit - 1)
+        response = query.execute()
+        items = response.data or []
+        total = response.count if response.count is not None else len(items)
 
-    items = response.data or []
     for it in items:
         if not it.get("kode_prodi"):
             it["kode_prodi"] = resolve_kode_prodi(it.get("nim"))
         if not it.get("program_studi"):
             it["program_studi"] = resolve_program_studi(it.get("kode_prodi"))
-
-    total = response.count if response.count is not None else len(items)
 
     return {
         "items": items,
@@ -836,8 +888,8 @@ def generate_sync_export_workbook(
 
     Aturan yang disetujui 2026-10-23:
     - Hanya status VALID (LULUS) yang mengisi sel.
-    - Format: "MOS (Lulus)" / "MCF (Lulus)".
-    - Title Microsoft: "MOS", "MCF", atau "MOS, MCF".
+    - Format: "MOS (Lulus)" / "MCF (Lulus)" / "MTCNA (Lulus)".
+    - Title: "MOS", "MCF", "MTCNA", atau kombinasinya ("MOS, MTCNA", "MOS, MCF", dst.).
     - Sel yang tidak lulus dibiarkan kosong.
     Mode 'draft' tetap tersedia sebagai pratinjau berlabel.
     """
@@ -876,8 +928,8 @@ def generate_sync_export_workbook(
         "NIM",
         "Nama",
         "Sertifikasi MOS",
-        "Sertifikasi MCF",
-        "Title Microsoft",
+        "Sertifikasi MCF/MTCNA",
+        "Title",
     ]
     ws_wisuda.append(headers)
     for col_num in range(1, len(headers) + 1):
@@ -886,7 +938,7 @@ def generate_sync_export_workbook(
         cell.fill = header_fill
 
     for idx, r in enumerate(results, start=1):
-        fill = build_wisuda_fill_values(r.get("mos_status"), r.get("mcf_status"))
+        fill = build_wisuda_fill_values(r.get("mos_status"), r.get("mcf_status"), r.get("mcf_programs"))
         nim_val = r.get("nim", "")
         kode_prodi_val = r.get("kode_prodi") or resolve_kode_prodi(nim_val)
         prodi_val = r.get("program_studi") or resolve_program_studi(kode_prodi_val)

@@ -856,3 +856,163 @@ def test_multiple_fuzzy_candidates_are_not_selected_automatically():
     assert build_wisuda_fill_values(r["mos_status"], r["mcf_status"])["mos"] == ""
 
 
+# ===================================================================
+# Prodi 31 & 32: Sertifikasi MTCNA sebagai opsi MCF
+# ===================================================================
+
+def test_prodi_31_mtcna_valid_fulfills_requirement():
+    """Mahasiswa prodi 31 (Informatika) lulus MOS dan MTCNA; MTCNA cukup via SITASI."""
+    r = _validate(
+        [wisuda_row(nim="202331001", nama="BUDI SANTOSO")],
+        [
+            sitasi_row(id=1, nim="202331001", nama="BUDI SANTOSO", sertifikasi="MOS", sub_program="Word", status="LULUS"),
+            sitasi_row(id=2, nim="202331001", nama="BUDI SANTOSO", sertifikasi="MTCNA", sub_program="", nilai=85, status="LULUS"),
+        ],
+        [
+            certiport_row(
+                full_name="BUDI SANTOSO",
+                program_name="Microsoft Office Specialist",
+                certification_name="Word",
+                result="Pass",
+            )
+        ],
+    )[0]
+
+    assert r["mos_status"] == VALID
+    assert r["mcf_status"] == VALID
+    assert r["validation_status"] == VALID
+    assert r["mcf_score"] == 85
+
+    prog = r.get("program_summary", {})
+    mcf_prog = prog.get("MCF_COMBINED") or prog.get("MTCNA") or prog.get("MCF")
+    fill = build_wisuda_fill_values(r["mos_status"], r["mcf_status"], mcf_prog)
+    assert fill["mos"] == "MOS (Lulus)"
+    assert fill["mcf"] == "MTCNA (Lulus)"
+    assert fill["title"] == "MOS, MTCNA"
+
+
+def test_prodi_32_mtcna_lulus_mcf_fail_fulfills_requirement():
+    """Mahasiswa prodi 32 (Sistem Informasi) gagal MCF tapi lulus MTCNA; syarat terpenuhi."""
+    r = _validate(
+        [wisuda_row(nim="202332001", nama="SITI RAHMA")],
+        [
+            sitasi_row(id=1, nim="202332001", nama="SITI RAHMA", sertifikasi="MOS", sub_program="Word", status="LULUS"),
+            sitasi_row(id=2, nim="202332001", nama="SITI RAHMA", sertifikasi="MCF", sub_program="AI-900", nilai=500, status="GAGAL"),
+            sitasi_row(id=3, nim="202332001", nama="SITI RAHMA", sertifikasi="MTCNA", sub_program="", nilai=80, status="LULUS"),
+        ],
+        [
+            certiport_row(
+                full_name="SITI RAHMA",
+                program_name="Microsoft Office Specialist",
+                certification_name="Word",
+                result="Pass",
+            ),
+            certiport_row(
+                full_name="SITI RAHMA",
+                program_name="Microsoft Certified Fundamentals",
+                certification_name="Azure AI Fundamentals",
+                result="Fail",
+            ),
+        ],
+    )[0]
+
+    assert r["mos_status"] == VALID
+    assert r["mcf_status"] == VALID
+    assert r["validation_status"] == VALID
+
+    prog = r.get("program_summary", {})
+    mcf_prog = prog.get("MCF_COMBINED") or prog.get("MTCNA") or prog.get("MCF")
+    fill = build_wisuda_fill_values(r["mos_status"], r["mcf_status"], mcf_prog)
+    assert fill["mos"] == "MOS (Lulus)"
+    assert fill["mcf"] == "MTCNA (Lulus)"
+    assert fill["title"] == "MOS, MTCNA"
+
+
+def test_prodi_31_both_mcf_and_mtcna_lulus():
+    """Mahasiswa prodi 31 lulus MOS, MCF, dan MTCNA; kolom wisuda mencantumkan keduanya."""
+    r = _validate(
+        [wisuda_row(nim="202331002", nama="AHMAD FAUZI")],
+        [
+            sitasi_row(id=1, nim="202331002", nama="AHMAD FAUZI", sertifikasi="MOS", sub_program="Word", status="LULUS"),
+            sitasi_row(id=2, nim="202331002", nama="AHMAD FAUZI", sertifikasi="MCF", sub_program="AI-900", nilai=850, status="LULUS"),
+            sitasi_row(id=3, nim="202331002", nama="AHMAD FAUZI", sertifikasi="MTCNA", sub_program="", nilai=88, status="LULUS"),
+        ],
+        [
+            certiport_row(
+                full_name="AHMAD FAUZI",
+                program_name="Microsoft Office Specialist",
+                certification_name="Word",
+                result="Pass",
+            ),
+            certiport_row(
+                full_name="AHMAD FAUZI",
+                program_name="Microsoft Certified Fundamentals",
+                certification_name="Azure AI Fundamentals",
+                result="Pass",
+            ),
+        ],
+    )[0]
+
+    assert r["mos_status"] == VALID
+    assert r["mcf_status"] == VALID
+    assert r["validation_status"] == VALID
+
+    prog = r.get("program_summary", {})
+    mcf_prog = prog.get("MCF_COMBINED") or prog.get("MTCNA") or prog.get("MCF")
+    fill = build_wisuda_fill_values(r["mos_status"], r["mcf_status"], mcf_prog)
+    assert fill["mos"] == "MOS (Lulus)"
+    assert fill["mcf"] == "MCF (Lulus), MTCNA (Lulus)"
+    assert fill["title"] == "MOS, MCF, MTCNA"
+
+
+def test_prodi_31_mtcna_gagal_and_no_mcf():
+    """Mahasiswa prodi 31 gagal MTCNA dan tidak mengambil MCF -> mcf_status TIDAK_LULUS."""
+    r = _validate(
+        [wisuda_row(nim="202331003", nama="DEWI LESTARI")],
+        [
+            sitasi_row(id=1, nim="202331003", nama="DEWI LESTARI", sertifikasi="MOS", sub_program="Word", status="LULUS"),
+            sitasi_row(id=2, nim="202331003", nama="DEWI LESTARI", sertifikasi="MTCNA", sub_program="", nilai=40, status="GAGAL"),
+        ],
+        [
+            certiport_row(
+                full_name="DEWI LESTARI",
+                program_name="Microsoft Office Specialist",
+                certification_name="Word",
+                result="Pass",
+            )
+        ],
+    )[0]
+
+    assert r["mos_status"] == VALID
+    assert r["mcf_status"] == TIDAK_LULUS
+    assert r["validation_status"] == PERLU_VERIFIKASI
+
+    prog = r.get("program_summary", {})
+    mcf_prog = prog.get("MCF_COMBINED") or prog.get("MTCNA") or prog.get("MCF")
+    fill = build_wisuda_fill_values(r["mos_status"], r["mcf_status"], mcf_prog)
+    assert fill["mos"] == "MOS (Lulus)"
+    assert fill["mcf"] == ""
+    assert fill["title"] == "MOS"
+
+
+def test_non_relevant_prodi_mtcna_not_evaluated_in_mcf_status():
+    """Mahasiswa prodi 11 (Teknik Elektro) mengambil MTCNA; mcf_status tetap None karena tidak relevan."""
+    r = _validate(
+        [wisuda_row(nim="202311001", nama="EKO PRASETYO")],
+        [
+            sitasi_row(id=1, nim="202311001", nama="EKO PRASETYO", sertifikasi="MOS", sub_program="Word", status="LULUS"),
+            sitasi_row(id=2, nim="202311001", nama="EKO PRASETYO", sertifikasi="MTCNA", sub_program="", nilai=90, status="LULUS"),
+        ],
+        [
+            certiport_row(
+                full_name="EKO PRASETYO",
+                program_name="Microsoft Office Specialist",
+                certification_name="Word",
+                result="Pass",
+            )
+        ],
+    )[0]
+
+    assert r["mos_status"] == VALID
+    assert r["mcf_status"] is None
+    assert r["validation_status"] == VALID

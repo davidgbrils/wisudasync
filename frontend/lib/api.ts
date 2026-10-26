@@ -201,7 +201,14 @@ export async function getSyncSession(id: string): Promise<{ success: boolean; da
 
 export async function getSyncResults(
   sessionId: string,
-  params?: { page?: number; limit?: number; status?: string; search?: string; needs_review?: boolean }
+  params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+    search?: string;
+    needs_review?: boolean;
+    program?: string;
+  }
 ): Promise<SyncResultsResponse> {
   const query = new URLSearchParams();
   if (params?.page) query.set("page", String(params.page));
@@ -209,6 +216,7 @@ export async function getSyncResults(
   if (params?.status) query.set("status", params.status);
   if (params?.search) query.set("search", params.search);
   if (params?.needs_review !== undefined) query.set("needs_review", String(params.needs_review));
+  if (params?.program) query.set("program", params.program);
   const qs = query.toString();
   return getJson<SyncResultsResponse>(`/sync/${sessionId}/results${qs ? `?${qs}` : ""}`);
 }

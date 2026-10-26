@@ -36,27 +36,75 @@ STATUS_LABELS: dict[str, str] = {
 # Label untuk status per programmatically yang belum dipetakan.
 STATUS_LABEL_UNKNOWN = "-"
 
-# Format isian kolom Wisuda yang disetujui pemilik project pada 2026-10-23.
+# Format isian kolom Wisuda yang disetujui pemilik project.
 FILLED_MOS_TEXT = "MOS (Lulus)"
 FILLED_MCF_TEXT = "MCF (Lulus)"
+FILLED_MTCNA_TEXT = "MTCNA (Lulus)"
 TITLE_MOS = "MOS"
 TITLE_MCF = "MCF"
+TITLE_MTCNA = "MTCNA"
 
 
-def build_wisuda_fill_values(mos_status: Any, mcf_status: Any) -> dict[str, str]:
+def build_wisuda_fill_values(
+    mos_status: Any,
+    mcf_status: Any,
+    mcf_programs: dict[str, Any] | None = None,
+) -> dict[str, str]:
     """Teks yang ditulis ke kolom Wisuda. Hanya status VALID yang diisi.
 
     Status selain VALID (tidak lulus, tidak ditemukan, perlu verifikasi)
     menghasilkan sel kosong sesuai keputusan pemilik project.
+    Untuk prodi 31 & 32, kolom Sertifikasi MCF/MTCNA diisi sesuai sertifikasi
+    yang diambil dan lulus: 'MCF (Lulus)', 'MTCNA (Lulus)', atau keduanya.
+    Kolom Title mencakup MOS, MCF, dan MTCNA yang berhasil lulus.
     """
     mos_text = FILLED_MOS_TEXT if mos_status == VALID else ""
-    mcf_text = FILLED_MCF_TEXT if mcf_status == VALID else ""
+
+    mcf_text = ""
+    include_mcf_title = False
+    include_mtcna_title = False
+
+    if mcf_status == VALID:
+        has_mcf_lulus = False
+        has_mtcna_lulus = False
+
+        if mcf_programs and isinstance(mcf_programs, dict):
+            exam_details = mcf_programs.get("exam_details", [])
+            for ed in exam_details:
+                ed_valid = (
+                    ed.get("combined_status") == VALID
+                    or ed.get("has_lulus") is True
+                    or ed.get("sitasi_status") in LULUS_STATUSES
+                    or ed.get("certiport_status") in CERTIPORT_PASS
+                )
+                if ed_valid:
+                    cert_name = (ed.get("sertifikasi") or ed.get("sub_program") or "").upper()
+                    if "MTCNA" in cert_name:
+                        has_mtcna_lulus = True
+                    else:
+                        has_mcf_lulus = True
+
+        if has_mcf_lulus and has_mtcna_lulus:
+            mcf_text = f"{FILLED_MCF_TEXT}, {FILLED_MTCNA_TEXT}"
+            include_mcf_title = True
+            include_mtcna_title = True
+        elif has_mtcna_lulus:
+            mcf_text = FILLED_MTCNA_TEXT
+            include_mcf_title = False
+            include_mtcna_title = True
+        else:
+            # Default fallback jika lulus MCF (atau tanpa data detail mcf_programs)
+            mcf_text = FILLED_MCF_TEXT
+            include_mcf_title = True
+            include_mtcna_title = False
 
     titles: list[str] = []
     if mos_text:
         titles.append(TITLE_MOS)
-    if mcf_text:
+    if include_mcf_title:
         titles.append(TITLE_MCF)
+    if include_mtcna_title:
+        titles.append(TITLE_MTCNA)
 
     return {
         "mos": mos_text,
@@ -826,6 +874,15 @@ def _cross_validate_exam(
     sitasi_status = sitasi_exam.get("exam_status", "")
     has_sitasi_lulus = sitasi_exam.get("has_lulus", False)
 
+    # Sertifikasi MTCNA diverifikasi langsung melalui data SITASI tanpa Certiport
+    if normalize_upper(sitasi_sertifikasi) == "MTCNA":
+        return {
+            "certiport_status": None,
+            "combined_status": _sitasi_only_combined(sitasi_exam, sitasi_matched),
+            "certiport_evidence": [],
+            "reason": "Sertifikasi MTCNA diverifikasi langsung melalui data SITASI.",
+        }
+
     expected_program = _map_category(sitasi_sertifikasi)
 
     matching_certiport: list[dict] = []
@@ -1123,11 +1180,12 @@ def match_sitasi_to_certiport(
         def _certiport_only_validation(reason: str) -> None:
             """Validasi SITASI saja; kandidat Certiport tidak dipakai."""
             for exam in exams:
+                is_mtcna = normalize_upper(exam.get("sertifikasi")) == "MTCNA"
                 exam["certiport_validation"] = {
                     "combined_status": _sitasi_only_combined(exam, sitasi_matched),
-                    "certiport_status": PERLU_VERIFIKASI if all_candidates else DATA_TIDAK_DITEMUKAN,
+                    "certiport_status": None if is_mtcna else (PERLU_VERIFIKASI if all_candidates else DATA_TIDAK_DITEMUKAN),
                     "certiport_evidence": [],
-                    "reason": reason,
+                    "reason": "Sertifikasi MTCNA diverifikasi langsung melalui data SITASI." if is_mtcna else reason,
                 }
             enriched["overall_status"] = (
                 _compute_combined_overall(exams)
@@ -1370,6 +1428,7 @@ def _build_program_summary(exams: list[dict]) -> dict[str, dict]:
             certiport_result = cert_ev[0].get("result") if cert_ev else None
 
             exam_details.append({
+                "sertifikasi": exam.get("sertifikasi", ""),
                 "sub_program": sub_name or exam.get("sertifikasi", ""),
                 "exam_status": exam.get("exam_status", ""),
                 "combined_status": combined,
@@ -1494,8 +1553,8 @@ def validate_wisuda_complete(
         certiport_match = row.get("certiport_match", {})
         mcf_relevant = is_mcf_relevant(row.get("kode_prodi"))
 
-        # MCF hanya relevan untuk prodi tertentu (mis. 31 Informatika, 32 Sistem Informasi).
-        # Untuk prodi lain, jangan bawa exam/evidence MCF ke ringkasan, UI, atau ekspor.
+        # MCF dan MTCNA hanya relevan untuk prodi tertentu (kode 31 Informatika, 32 Sistem Informasi).
+        # Untuk prodi lain, jangan bawa exam/evidence MCF atau MTCNA ke ringkasan, UI, atau ekspor.
         if not mcf_relevant:
             row["exams"] = [
                 exam for exam in row.get("exams", [])
@@ -1514,9 +1573,49 @@ def validate_wisuda_complete(
         validated["program_summary"] = program_summary
         validated["mos_status"] = program_summary.get("MOS", {}).get("status", DATA_TIDAK_DITEMUKAN)
         validated["mos_score"] = program_summary.get("MOS", {}).get("score")
+
         if mcf_relevant:
-            validated["mcf_status"] = program_summary.get("MCF", {}).get("status", DATA_TIDAK_DITEMUKAN)
-            validated["mcf_score"] = program_summary.get("MCF", {}).get("score")
+            mcf_data = program_summary.get("MCF")
+            mtcna_data = program_summary.get("MTCNA")
+
+            # Mahasiswa prodi 31 & 32 dapat memilih salah satu antara MCF atau MTCNA.
+            if mcf_data and mtcna_data:
+                if mcf_data.get("status") == VALID or mtcna_data.get("status") == VALID:
+                    mcf_status = VALID
+                elif mcf_data.get("status") == PERLU_VERIFIKASI or mtcna_data.get("status") == PERLU_VERIFIKASI:
+                    mcf_status = PERLU_VERIFIKASI
+                elif mcf_data.get("status") == PENDING or mtcna_data.get("status") == PENDING:
+                    mcf_status = PENDING
+                elif mcf_data.get("status") == TIDAK_LULUS and mtcna_data.get("status") == TIDAK_LULUS:
+                    mcf_status = TIDAK_LULUS
+                else:
+                    mcf_status = PERLU_VERIFIKASI
+
+                scores_combined = {**(mcf_data.get("scores") or {}), **(mtcna_data.get("scores") or {})}
+                available_scores = [s for s in (mcf_data.get("score"), mtcna_data.get("score")) if s is not None]
+                combined_mcf_prog = {
+                    "status": mcf_status,
+                    "score": max(available_scores) if available_scores else None,
+                    "scores": scores_combined,
+                    "sitasi_name": mcf_data.get("sitasi_name") or mtcna_data.get("sitasi_name"),
+                    "certiport_name": mcf_data.get("certiport_name"),
+                    "exam_count": (mcf_data.get("exam_count") or 0) + (mtcna_data.get("exam_count") or 0),
+                    "exam_details": (mcf_data.get("exam_details") or []) + (mtcna_data.get("exam_details") or []),
+                    "reason_codes": sorted(set((mcf_data.get("reason_codes") or []) + (mtcna_data.get("reason_codes") or []))),
+                    "needs_review": mcf_status != VALID and bool(mcf_data.get("needs_review") or mtcna_data.get("needs_review")),
+                }
+                validated["mcf_status"] = mcf_status
+                validated["mcf_score"] = combined_mcf_prog["score"]
+                program_summary["MCF_COMBINED"] = combined_mcf_prog
+            elif mcf_data:
+                validated["mcf_status"] = mcf_data.get("status", DATA_TIDAK_DITEMUKAN)
+                validated["mcf_score"] = mcf_data.get("score")
+            elif mtcna_data:
+                validated["mcf_status"] = mtcna_data.get("status", DATA_TIDAK_DITEMUKAN)
+                validated["mcf_score"] = mtcna_data.get("score")
+            else:
+                validated["mcf_status"] = DATA_TIDAK_DITEMUKAN
+                validated["mcf_score"] = None
         else:
             validated["mcf_status"] = None
             validated["mcf_score"] = None
@@ -1525,13 +1624,23 @@ def validate_wisuda_complete(
         needs_review = False
         review_flags: list[str] = []
 
-        for prog_name, prog_data in program_summary.items():
-            if prog_name == "MCF" and not mcf_relevant:
-                continue
-            all_reason_codes.extend(prog_data.get("reason_codes", []))
-            if prog_data.get("needs_review"):
+        mos_prog = program_summary.get("MOS", {})
+        all_reason_codes.extend(mos_prog.get("reason_codes", []))
+        if mos_prog.get("needs_review"):
+            needs_review = True
+            review_flags.append("MOS: perlu review")
+
+        if mcf_relevant:
+            second_prog = (
+                program_summary.get("MCF_COMBINED")
+                or program_summary.get("MCF")
+                or program_summary.get("MTCNA")
+                or {}
+            )
+            all_reason_codes.extend(second_prog.get("reason_codes", []))
+            if second_prog.get("needs_review") and validated["mcf_status"] != VALID:
                 needs_review = True
-                review_flags.append(f"{prog_name}: perlu review")
+                review_flags.append("MCF/MTCNA: perlu review")
 
         # Kode alasan tingkat baris untuk identitas yang belum pasti, walaupun
         # tidak ada exam (mis. kandidat parsial tanpa rekaman SITASI).
@@ -1544,11 +1653,11 @@ def validate_wisuda_complete(
             all_reason_codes.append("R15_CANDIDATE_ONLY")
 
         relevant_statuses: list[str] = []
-        for prog_name, prog_data in program_summary.items():
-            if prog_name == "MCF" and not mcf_relevant:
-                continue
-            relevant_statuses.append(prog_data.get("status") or "")
-        relevant_statuses = [s for s in relevant_statuses if s]
+        if validated["mos_status"]:
+            relevant_statuses.append(validated["mos_status"])
+        if mcf_relevant and validated["mcf_status"]:
+            relevant_statuses.append(validated["mcf_status"])
+
         overall = (
             _overall_from_statuses(relevant_statuses)
             if relevant_statuses

@@ -657,3 +657,59 @@ Dokumen ini menjadi checkpoint singkat antarsesi. Perbarui setelah setiap peruba
 - **Tes terakhir:** `venv/Scripts/python.exe -m pytest tests -q` — 177 PASS. Verifikasi kasus NIM 202310129: `PERLU_VERIFIKASI`, `mos_status=DATA_TIDAK_DITEMUKAN`, `exams=[]`, kandidat `Muhammad Akbar` skor 67.
 - **Blocker:** UAT visual modal review dan runtime Supabase development berizin belum dijalankan.
 - **Berikutnya:** UAT modal review untuk memastikan kandidat tidak tampil sebagai skor mahasiswa; impor batch asli di environment berizin.
+
+## 2026-10-26 — Pengecekan Sertifikasi MTCNA untuk Prodi 31 & 32 & Penyesuaian Kolom Title
+
+- **Status:** SELESAI
+- **Tahap:** Mengakomodasi sertifikasi MTCNA bagi mahasiswa S1 Teknik Informatika (31) dan S1 Sistem Informasi (32) sebagai alternatif pilihan selain MCF, pengecekan langsung via data SITASI tanpa Certiport, penyesuaian kolom `Sertifikasi MCF/MTCNA`, penyederhanaan kolom `Title Microsoft` menjadi `Title`, serta pencantuman gelar `MTCNA` pada kolom `Title` jika lulus MTCNA.
+- **Perubahan:**
+  - `backend/app/services/wisuda_validation_service.py`: Template `WISUDA_COLUMNS` memakai `Sertifikasi MCF/MTCNA` dan `Title`, serta kompatibel mundur dengan template legasi (`Title Microsoft`, `Sertifikasi MCF`).
+  - `backend/app/services/matching_service.py`:
+    - `_cross_validate_exam` memvalidasi MTCNA langsung dari rekaman SITASI (tanpa mencari ke Certiport).
+    - `validate_wisuda_complete` menggabungkan evaluasi MCF & MTCNA untuk prodi 31/32 (lulus salah satu = syarat terpenuhi `VALID`).
+    - `build_wisuda_fill_values` menghasilkan `MCF (Lulus)`, `MTCNA (Lulus)`, atau keduanya, dan menambahkan `TITLE_MTCNA = "MTCNA"` ke kolom `Title` jika lulus MTCNA (misal: "MOS, MTCNA", "MOS, MCF, MTCNA", atau "MTCNA").
+  - `backend/app/services/sync_service.py`: Pemetaan `mcf_programs` mencakup MTCNA, dan header ekspor diselaraskan ke `Sertifikasi MCF/MTCNA` dan `Title`.
+  - `backend/scripts/generate_validation_workbook.py`: Penyelarasan header target `Sertifikasi MCF/MTCNA`, resolusi `Title` / `Title Microsoft`, dan pembacaan `mcf_programs`.
+  - `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`: Label tabel `Sertifikasi MCF/MTCNA` dan `Title`, pembaruan fungsi title untuk menampilkan badge `MTCNA`, dan modal review target.
+  - `backend/tests/test_validation_engine.py`: +5 unit test pengujian kelulusan MTCNA, pemilihan MCF vs MTCNA, kelulusan ganda, proteksi prodi non-relevan, serta validasi gelar Title MTCNA.
+  - `backend/tests/test_export_gate.py`: Penyelarasan header ekspor menjadi `("Sertifikasi MOS", "Sertifikasi MCF/MTCNA", "Title")`.
+  - `docs/18_CHANGELOG.md`: Pencatatan changelog.
+- **Tes terakhir:**
+  - `backend/venv/Scripts/python.exe -m pytest tests -q` — 182 PASS (100% passed).
+  - `npm run typecheck` — PASS (0 errors).
+- **Blocker:** Tidak ada blocker teknis.
+- **Berikutnya:** Validasi visual hasil sinkronisasi pada peramban dan ekspor berkas wisuda terisi.
+
+## 2026-10-26 — Perbaikan Filter Status Hasil Sinkronisasi & Interaktivitas KPI Cards
+
+- **Status:** SELESAI
+- **Tahap:** Perbaikan filter status pada halaman detail hasil sinkronisasi (`/sinkronisasi/[id]`) agar terpusat pada status hasil sinkronisasi (`VALID`, `PERLU_VERIFIKASI`, `DATA_TIDAK_DITEMUKAN`), menjadikan kartu KPI interaktif sebagai tombol filter langsung, dan menampilkan indikator status hasil pada tabel.
+- **Perubahan:**
+  - `backend/app/services/sync_service.py` (`list_sync_results`): Filter `status="PERLU_VERIFIKASI"` mencakup baris `PERLU_VERIFIKASI` dan `TIDAK_LULUS` sehingga selaras dengan metrik `session.total_review`.
+  - `backend/tests/test_sync_service.py`: Penambahan unit test untuk filter `status="PERLU_VERIFIKASI"`.
+  - `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`:
+    - Kartu KPI ringkasan (Total Mahasiswa, Valid, Perlu Verifikasi, Tidak Ditemukan) kini dapat diklik langsung untuk memfilter tabel dengan ring status aktif.
+    - Dropdown filter status diselaraskan menampilkan jumlah baris per kategori serta tombol reset.
+    - Menghilangkan bentrok checkbox `needsReviewOnly` dengan filter status.
+    - Kolom nama mahasiswa dilengkapi badge status hasil (`Perlu Verifikasi` atau `Tidak Ditemukan`).
+- **Tes terakhir:**
+  - `backend/venv/Scripts/python.exe -m pytest tests -q` — 182 PASS (100% passed).
+  - `npm run typecheck` — PASS (0 errors).
+- **Blocker:** Tidak ada blocker teknis.
+- **Berikutnya:** UAT interaktif filter status dan kartu KPI pada peramban web.
+
+## 2026-10-26 — Penambahan Filter Program Sertifikasi (MOS / MCF / MTCNA)
+
+- **Status:** SELESAI
+- **Tahap:** Penambahan filter program sertifikasi (`MOS`, `MCF`, `MTCNA`) pada halaman detail hasil sinkronisasi agar pengguna dapat memfilter baris mahasiswa berdasarkan sertifikasi yang diambil/dimiliki.
+- **Perubahan:**
+  - `backend/app/services/sync_service.py`: Deteksi program melalui `_row_has_program` dan penanganan parameter `program` pada `list_sync_results`.
+  - `backend/app/api/v1/endpoints/sync.py`: Dukungan query parameter `program` pada endpoint `/results`.
+  - `backend/tests/test_sync_service.py` & `test_sync_api.py`: Unit test filter program.
+  - `frontend/lib/api.ts`: Penambahan parameter `program` pada `getSyncResults`.
+  - `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`: Penambahan select dropdown `Program:` dan integrasi tombol reset filter.
+- **Tes terakhir:**
+  - `backend/venv/Scripts/python.exe -m pytest tests -q` — 182 PASS (100% passed).
+  - `npm run typecheck` — PASS (0 errors).
+- **Blocker:** Tidak ada blocker teknis.
+- **Berikutnya:** Validasi visual alur filter program gabungan pada peramban web.

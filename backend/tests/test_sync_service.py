@@ -419,6 +419,11 @@ def test_list_sync_results_pagination_and_filtering(populated_supabase):
     assert valid_res["total"] == 1
     assert valid_res["items"][0]["nim"] == "209900001"
 
+    # Filter status PERLU_VERIFIKASI
+    pv_res = list_sync_results(populated_supabase, session_id, status="PERLU_VERIFIKASI")
+    assert pv_res["total"] == 1
+    assert pv_res["items"][0]["nim"] == "209900002"
+
     # Filter needs_review=True
     review_res = list_sync_results(populated_supabase, session_id, needs_review=True)
     assert review_res["total"] == 2
@@ -434,6 +439,18 @@ def test_list_sync_results_pagination_and_filtering(populated_supabase):
     assert paged["limit"] == 1
     assert len(paged["items"]) == 1
     assert paged["items"][0]["source_row"] == 3
+
+    # Filter program MOS
+    mos_res = list_sync_results(populated_supabase, session_id, program="MOS")
+    assert mos_res["total"] == 2
+
+    # Filter program MCF
+    mcf_res = list_sync_results(populated_supabase, session_id, program="MCF")
+    assert mcf_res["total"] == 0
+
+    # Filter program MTCNA
+    mtcna_res = list_sync_results(populated_supabase, session_id, program="MTCNA")
+    assert mtcna_res["total"] == 0
 
 
 # ---------------------------------------------------------------------------

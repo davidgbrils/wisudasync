@@ -211,6 +211,12 @@ def test_get_session_results_with_filter(auth_client, setup_supabase_mock):
     assert resp.json()["data"]["total"] == 1
     assert resp.json()["data"]["items"][0]["nim"] == "999999999"
 
+    # Filter by program MOS
+    resp = auth_client.get(f"/api/v1/sync/{session_id}/results?program=MOS")
+    assert resp.status_code == 200
+    assert resp.json()["data"]["total"] == 1
+    assert resp.json()["data"]["items"][0]["nim"] == "209900001"
+
 
 # ---------------------------------------------------------------------------
 # GET /api/v1/sync/{session_id}/results/{result_id}

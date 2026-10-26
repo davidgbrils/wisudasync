@@ -8,7 +8,7 @@ Sumber (lokal, tidak di-commit):
 Aturan yang disetujui pemilik project (2026-10-23):
 - Hanya status LULUS yang diisi.
 - Format kolom: "MOS (Lulus)" / "MCF (Lulus)".
-- Title Microsoft: "MOS", "MCF", atau "MOS, MCF".
+- Title: "MOS", "MCF", "MTCNA", atau kombinasinya ("MOS, MTCNA", "MOS, MCF", dst.).
 - Sel yang tidak lulus dikosongkan.
 - MCF hanya diisi untuk prodi kode 31 dan 32.
 - Certiport dicocokkan hanya dengan nama ternormalisasi yang persis sama.
@@ -47,7 +47,7 @@ from app.services.wisuda_validation_service import parse_wisuda_for_sync
 
 WISUDA_SHEET = "Wisuda"
 SUMMARY_SHEET = "Ringkasan"
-TARGET_COLUMNS = ("Sertifikasi MOS", "Sertifikasi MCF", "Title Microsoft")
+TARGET_COLUMNS = ("Sertifikasi MOS", "Sertifikasi MCF/MTCNA", "Title")
 
 
 def _read_with_parser(path: Path, parser, *args) -> list[dict]:
@@ -63,14 +63,16 @@ def load_sources(wisuda_path: Path, sitasi_path: Path, certiport_path: Path):
     return wisuda_rows, sitasi_rows, certiport_rows
 
 
-def _header_positions(worksheet) -> dict[str, int]:
+def _header_positions(worksheet) -> tuple[dict[str, int], str, str]:
     for row_number in range(1, min(worksheet.max_row or 0, 10) + 1):
         values = next(
             worksheet.iter_rows(min_row=row_number, max_row=row_number, values_only=True)
         )
         headers = {str(value).strip(): index for index, value in enumerate(values, start=1) if value}
         if "NIM" in headers and "Sertifikasi MOS" in headers:
-            return headers
+            mcf_col = "Sertifikasi MCF/MTCNA" if "Sertifikasi MCF/MTCNA" in headers else "Sertifikasi MCF"
+            title_col = "Title" if "Title" in headers else "Title Microsoft"
+            return headers, mcf_col, title_col
     raise ValueError("Header sheet Wisuda tidak dikenali (NIM/Sertifikasi MOS tidak ditemukan).")
 
 
@@ -86,8 +88,9 @@ def fill_wisuda_workbook(
         raise ValueError(f"Sheet wajib '{WISUDA_SHEET}' tidak ditemukan.")
 
     worksheet = workbook[WISUDA_SHEET]
-    positions = _header_positions(worksheet)
-    missing = [column for column in TARGET_COLUMNS if column not in positions]
+    positions, mcf_col, title_col = _header_positions(worksheet)
+    target_cols = ("Sertifikasi MOS", mcf_col, title_col)
+    missing = [column for column in target_cols if column not in positions]
     if missing:
         workbook.close()
         raise ValueError(f"Kolom target tidak ditemukan: {', '.join(missing)}")
@@ -97,8 +100,10 @@ def fill_wisuda_workbook(
         row_number = result.get("source_row")
         if not isinstance(row_number, int):
             continue
-        fill = build_wisuda_fill_values(result.get("mos_status"), result.get("mcf_status"))
-        for column, value in zip(TARGET_COLUMNS, (fill["mos"], fill["mcf"], fill["title"])):
+        prog_summary = result.get("program_summary", {})
+        mcf_prog = prog_summary.get("MCF_COMBINED") or prog_summary.get("MCF") or prog_summary.get("MTCNA")
+        fill = build_wisuda_fill_values(result.get("mos_status"), result.get("mcf_status"), mcf_prog)
+        for column, value in zip(target_cols, (fill["mos"], fill["mcf"], fill["title"])):
             worksheet.cell(row=row_number, column=positions[column]).value = value or None
 
         counts["total"] += 1
@@ -126,8 +131,8 @@ def fill_wisuda_workbook(
         ("Sumber Wisuda", source_path.name),
         ("Aturan isi", "Hanya status LULUS yang diisi; sel lain kosong."),
         ("Format MOS", "MOS (Lulus)"),
-        ("Format MCF", "MCF (Lulus) untuk prodi 31 dan 32"),
-        ("Format Title Microsoft", "MOS, MCF, atau MOS, MCF"),
+        ("Format MCF/MTCNA", "MCF (Lulus) atau MTCNA (Lulus) untuk prodi 31 dan 32"),
+        ("Format Title", "MOS, MCF, MTCNA, atau kombinasinya"),
         ("Total mahasiswa", counts["total"]),
         ("Lulus MOS", counts["mos"]),
         ("Lulus MCF", counts["mcf"]),

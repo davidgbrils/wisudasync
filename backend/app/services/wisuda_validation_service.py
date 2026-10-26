@@ -17,8 +17,38 @@ WISUDA_COLUMNS = [
     "NIM",
     "Nama",
     "Sertifikasi MOS",
+    "Sertifikasi MCF/MTCNA",
+    "Title",
+]
+LEGACY_WISUDA_COLUMNS = [
+    "No",
+    "Kode Prodi",
+    "Program Studi",
+    "NIM",
+    "Nama",
+    "Sertifikasi MOS",
+    "Sertifikasi MCF/MTCNA",
+    "Title Microsoft",
+]
+LEGACY_MCF_COLUMNS = [
+    "No",
+    "Kode Prodi",
+    "Program Studi",
+    "NIM",
+    "Nama",
+    "Sertifikasi MOS",
     "Sertifikasi MCF",
     "Title Microsoft",
+]
+LEGACY_MCF_TITLE_COLUMNS = [
+    "No",
+    "Kode Prodi",
+    "Program Studi",
+    "NIM",
+    "Nama",
+    "Sertifikasi MOS",
+    "Sertifikasi MCF",
+    "Title",
 ]
 REQUIRED_COLUMNS = ("NIM", "Nama")
 HEADER_SEARCH_ROWS = 10
@@ -185,7 +215,12 @@ def validate_wisuda_workbook(
         "sheet_name": WISUDA_SHEET,
         "header_row": header_row,
         "columns": columns,
-        "layout_matches_template": columns[: len(WISUDA_COLUMNS)] == WISUDA_COLUMNS,
+        "layout_matches_template": (
+            columns[: len(WISUDA_COLUMNS)] == WISUDA_COLUMNS
+            or columns[: len(LEGACY_WISUDA_COLUMNS)] == LEGACY_WISUDA_COLUMNS
+            or columns[: len(LEGACY_MCF_COLUMNS)] == LEGACY_MCF_COLUMNS
+            or columns[: len(LEGACY_MCF_TITLE_COLUMNS)] == LEGACY_MCF_TITLE_COLUMNS
+        ),
         "missing_columns": missing_columns,
         "student_count": student_count,
         "empty_row_count": empty_row_count,
