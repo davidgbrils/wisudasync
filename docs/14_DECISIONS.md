@@ -8,7 +8,7 @@ Dokumen ini menghindari keputusan penting diambil diam-diam oleh kode/AI. `DIPUT
 | ADR-001 | Frontend Next.js, backend FastAPI | DIPUTUSKAN | Pemisahan UI dan proses Excel |
 | ADR-002 | Wisuda→SITASI menggunakan exact NIM | DIPUTUSKAN | NIM adalah identitas; nama hanya peringatan |
 | ADR-003 | Isi dan kolom target ekspor Wisuda | **DISETUJUI (2026-10-23)** | Isi hanya LULUS, format `MOS (Lulus)` |
-| ADR-004 | Certiport tanpa NIM; fuzzy hanya kandidat | DIPUTUSKAN | Exact name mengisi; fuzzy tidak |
+| ADR-004 | Certiport tanpa NIM; fuzzy terbatas | DIPUTUSKAN | Kandidat tunggal >=90% dapat mengisi bila syarat ketat terpenuhi |
 | ADR-005 | Aturan ekuivalensi jenis ujian/versi | **DIPUTUSKAN (DISETUJUI)** | Relevan untuk berkas legacy bersub-program |
 | ADR-006 | Definisi output `Title Microsoft` | **DISETUJUI (2026-10-23)** | `MOS`, `MCF`, atau `MOS, MCF` |
 | ADR-007 | Penyimpanan dan retensi data | TERBUKA | Keamanan/privasi |
@@ -29,8 +29,14 @@ Dokumen ini menghindari keputusan penting diambil diam-diam oleh kode/AI. `DIPUT
 ## ADR-003 — Mapping output Wisuda [DISETUJUI 2026-10-23]
 **Keputusan pemilik project:** Isi hanya sertifikasi berstatus LULUS. Format sel: `MOS (Lulus)` dan `MCF (Lulus)`. Sel yang tidak lulus/tidak ditemukan/perlu verifikasi dibiarkan kosong. Karena sumber ringkas tidak lagi memuat sub-program, nama produk (Word/Excel) tidak dicantumkan. Ekspor final diaktifkan kembali.
 
+**Pembaruan pemilik project (2026-11-02):** Bila MCF dan MTCNA sama-sama `VALID`, sel `Sertifikasi MCF/MTCNA` berisi tepat `MCF&MTCNA`. Jika hanya satu yang valid, tulis hanya sertifikasi itu. Bukti `PASS` dari sumber lain yang tidak menghasilkan status ujian `VALID` tidak boleh ikut mengisi.
+
 ## ADR-004 — Matching Certiport
 **Keputusan:** Identitas hanya dikonfirmasi bila seluruh token nama sama (urutan/gelar boleh berbeda). Kandidat parsial/fuzzy hanya saran review; record-nya tidak dipakai sebagai bukti atau skor. Jika NIM tersedia di kedua sumber dan berbeda, identitas dianggap konflik.
+
+**Pembaruan pemilik project (2026-11-02):** Jika nama penuh tidak ditemukan dan nama Wisuda/SITASI diawali `Muhammad`, `Muhamad`, `Mohammad`, atau `Mohamad`, lakukan pencarian kedua memakai seluruh token nama setelah awalan tersebut. Sisa nama harus sama persis, minimal dua token, dan hanya satu nama Certiport yang boleh cocok. Konflik NIM atau beberapa nama yang cocok tetap memerlukan review; kandidat fuzzy lain tidak menjadi bukti.
+
+**Keputusan pemilik project (2026-11-02, terbaru):** Bila NIM tidak ditemukan di SITASI, satu kandidat Certiport dengan skor nama minimal 90% boleh otomatis `VALID` hanya bila cakupan token ikut memenuhi skor, kategori program dikenali dan relevan, ujian tercatat, semua hasil kandidat `PASS`, dan tidak ada konflik NIM. Dua kandidat dengan skor minimal 90%, hasil gagal, atau program tidak sesuai tetap memerlukan review. Pencocokan ini dicatat sebagai `CERTIPORT_FUZZY_90` dalam hasil baru. Keputusan ini menggantikan larangan fuzzy otomatis di atas untuk kondisi terbatas tersebut.
 
 **Alternatif ditolak:** `full_name` parsial atau fuzzy langsung menjadi VALID; risiko salah orang. **Regresi 2026-10-23:** kandidat fuzzy sempat dipakai sebagai evidence dan exam; sudah diperbaiki.
 
@@ -43,6 +49,8 @@ Dokumen ini menghindari keputusan penting diambil diam-diam oleh kode/AI. `DIPUT
 
 ## ADR-007 — Retensi [TERBUKA]
 Tentukan lokasi file asli, lama retensi per jenis, backup, dan aturan penghapusan berdasarkan kebijakan ITCC. Sampai jelas, hindari upload asli ke repo/hosting publik; gunakan file dummy lokal.
+
+**Implementasi lokal 2026-11-02:** Sumber Wisuda sesi baru disimpan di bucket Supabase `wisuda-source` yang private, hanya lewat backend service role, untuk menjaga sheet/formula/format saat ekspor. Migrasi bucket disiapkan tetapi belum dijalankan. Retensi dan prosedur penghapusan masih terbuka; data asli tidak boleh diimpor ke lingkungan yang belum disetujui.
 
 ## ADR-008 — Aktif per tipe master
 Satu batch SITASI aktif dan satu Certiport aktif. ID batch disimpan per sesi. **Perbaikan Phase 4:** operasi pergantian aktif perlu atomik (saat ini kode starter menggunakan dua update terpisah).

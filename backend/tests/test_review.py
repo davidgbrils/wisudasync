@@ -161,6 +161,18 @@ def test_submit_review_admin_can_konfirmasi_cocok(mock_supabase_with_result):
     assert audits[0]["new_status"] == VALID
 
 
+def test_review_totals_do_not_count_valid_with_review_flag_twice(mock_supabase_with_result):
+    sb, session_id, result_id = mock_supabase_with_result
+    sb.storage["sync_sessions"][0]["total_rows"] = 2
+    sb.storage["sync_results"].append({
+        "id": "res-2", "sync_session_id": session_id,
+        "validation_status": VALID, "needs_review": True,
+    })
+    submit_review(sb, session_id, result_id, decision="TUNDA_VERIFIKASI", note="Menunggu bukti")
+    session = sb.storage["sync_sessions"][0]
+    assert (session["total_valid"], session["total_review"], session["total_not_found"]) == (1, 1, 0)
+
+
 def test_review_ganda_preserves_sequential_audit_trail(mock_supabase_with_result):
     """Review bertahap/ganda menyimpan jejak audit lengkap tanpa menimpa histori lama."""
     sb, session_id, result_id = mock_supabase_with_result
@@ -218,7 +230,7 @@ def test_review_does_not_delete_or_alter_original_evidence(mock_supabase_with_re
 # API tests: PATCH /api/v1/sync/{session_id}/results/{result_id}/review
 # ---------------------------------------------------------------------------
 
-def test_api_review_accessible_without_auth(monkeypatch, mock_supabase_with_result):
+def test_api_review_rejects_without_auth(monkeypatch, mock_supabase_with_result):
     sb, session_id, result_id = mock_supabase_with_result
     monkeypatch.setattr(sync_endpoint, "get_supabase", lambda: sb)
     client = TestClient(app)
@@ -226,7 +238,7 @@ def test_api_review_accessible_without_auth(monkeypatch, mock_supabase_with_resu
         f"/api/v1/sync/{session_id}/results/{result_id}/review",
         json={"decision": "TUNDA_VERIFIKASI", "note": "Catatan admin"},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 401
 
 
 def test_api_review_adr009_blocks_staff_konfirmasi(monkeypatch, mock_supabase_with_result):

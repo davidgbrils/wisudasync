@@ -158,6 +158,7 @@ def test_dt_row6_exact_name_wins_over_fuzzy_candidates():
     )[0]
     assert r["validation_status"] == VALID
     assert r["certiport_match"]["status"] == "MATCHED"
+    assert r["needs_review"] is False
 
 
 # Baris 7: SITASI MOS Word LULUS; Certiport beda ujian (Excel PASS) => SITASI cukup, VALID
@@ -199,8 +200,8 @@ def test_dt_no_sitasi_but_found_in_certiport():
     assert r["validation_status"] == VALID
     assert r["mos_status"] == VALID
     assert "R14_CERTIPORT_ONLY" in r["reason_codes"]
-    assert r["needs_review"] is True
-    assert any("Certiport" in flag for flag in r["review_flags"])
+    assert r["needs_review"] is False
+    assert r["review_flags"] == []
 
 
 # Baris 9: SITASI LULUS, Certiport INCO/kosong => SITASI cukup, VALID
@@ -308,11 +309,11 @@ def test_name_mismatch_flags_review():
 
 
 def test_fuzzy_only_flags_review():
-    # Tidak cocok di SITASI (NIM tidak ada), Certiport hanya mirip → review + saran nama.
+    # Kemiripan di bawah 90% tetap memerlukan review.
     r = _validate(
         [wisuda_row(nim="999999999", nama="MAHASISWA CONTOH")],
         [sitasi_row(nim="209900001", nama="ORANG LAIN", status="LULUS")],
-        [certiport_row(full_name="MAHASISWA CONTOHH", result="Pass")],
+        [certiport_row(full_name="MAHASISWA CONTOH LAIN", result="Pass")],
     )[0]
     assert r["needs_review"] is True
     assert any("fuzzy" in f.lower() or "mirip" in f.lower() for f in r["review_flags"])
@@ -398,7 +399,7 @@ def test_placeholder_tidak_diketahui_pending_does_not_override_passed_exam():
 
 
 # ===================================================================
-# SITASI LULUS + Certiport FAIL (konflik) => PERLU_VERIFIKASI
+# SITASI LULUS + Certiport FAIL => tetap VALID berdasarkan SITASI
 # ===================================================================
 
 def test_sitasi_lulus_certiport_fail_reason_code():
@@ -407,8 +408,11 @@ def test_sitasi_lulus_certiport_fail_reason_code():
         [sitasi_row(status="LULUS")],
         [certiport_row(result="Fail")],
     )[0]
-    assert r["validation_status"] == PERLU_VERIFIKASI
-    assert "R04_CERTIPORT_NO_PASS" in r["reason_codes"]
+    assert r["validation_status"] == VALID
+    assert r["mos_status"] == VALID
+    assert r["needs_review"] is False
+    assert "R01_VALID" in r["reason_codes"]
+    assert r["program_summary"]["MOS"]["exam_details"][0]["certiport_status"] == "FAIL"
 
 
 # ===================================================================
@@ -711,12 +715,42 @@ def test_fuzzy_name_only_does_not_fill():
     r = _validate(
         [wisuda_row(nim="209900001", nama="MAHASISWA CONTOH")],
         [],
-        [certiport_row(full_name="MAHASISWA CONTOHH", certification_name="MOS", result="PASS")],
+        [certiport_row(full_name="MAHASISWA CONTOH LAIN", certification_name="MOS", result="PASS")],
     )[0]
 
     # Fuzzy bukan exact: tidak boleh mengisi, apa pun status internalnya.
     assert r["mos_status"] in (DATA_TIDAK_DITEMUKAN, PERLU_VERIFIKASI)
     assert build_wisuda_fill_values(r["mos_status"], r["mcf_status"])["mos"] == ""
+
+
+def test_unique_fuzzy_90_pass_without_sitasi_is_cocok():
+    r = _validate(
+        [wisuda_row(nim="209900001", nama="MAHASISWA CONTOH")],
+        [],
+        [certiport_row(full_name="MAHASISWA CONTOHH", certification_name="Word", result="PASS")],
+    )[0]
+    assert r["certiport_match"]["status"] == "MATCHED"
+    assert r["certiport_match"]["candidates"][0]["score"] >= 90
+    assert r["validation_status"] == VALID
+    assert r["needs_review"] is False
+    assert build_wisuda_fill_values(r["mos_status"], r["mcf_status"])["mos"] == "MOS (Lulus)"
+
+
+def test_fuzzy_90_requires_unique_pass_and_matching_program():
+    wisuda = [wisuda_row(nim="209900001", nama="MAHASISWA CONTOH")]
+    cases = [
+        [
+            certiport_row(id=1, full_name="MAHASISWA CONTOHH"),
+            certiport_row(id=2, full_name="MAHASISWA CONTO"),
+        ],
+        [certiport_row(full_name="MAHASISWA CONTOHH", result="FAIL")],
+        [certiport_row(full_name="MAHASISWA CONTOHH", nim="209900002")],
+        [certiport_row(full_name="MAHASISWA CONTOHH", program_name="Microsoft Certified Fundamentals")],
+    ]
+    for certiport in cases:
+        r = _validate(wisuda, [], certiport)[0]
+        assert r["validation_status"] != VALID
+        assert r["needs_review"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -961,8 +995,18 @@ def test_prodi_31_both_mcf_and_mtcna_lulus():
     mcf_prog = prog.get("MCF_COMBINED") or prog.get("MTCNA") or prog.get("MCF")
     fill = build_wisuda_fill_values(r["mos_status"], r["mcf_status"], mcf_prog)
     assert fill["mos"] == "MOS (Lulus)"
-    assert fill["mcf"] == "MCF (Lulus), MTCNA (Lulus)"
+    assert fill["mcf"] == "MCF&MTCNA"
     assert fill["title"] == "MOS, MCF, MTCNA"
+
+
+def test_mtcna_valid_does_not_promote_conflicting_mcf_evidence_to_export():
+    programs = {"exam_details": [
+        {"sertifikasi": "MCF", "combined_status": TIDAK_LULUS, "certiport_status": "PASS"},
+        {"sertifikasi": "MTCNA", "combined_status": VALID, "sitasi_status": "LULUS"},
+    ]}
+    fill = build_wisuda_fill_values(VALID, VALID, programs)
+    assert fill["mcf"] == "MTCNA (Lulus)"
+    assert fill["title"] == "MOS, MTCNA"
 
 
 def test_prodi_31_mtcna_gagal_and_no_mcf():

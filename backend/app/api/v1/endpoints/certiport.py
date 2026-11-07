@@ -4,6 +4,8 @@ from app.core.auth import require_staff
 from app.core.config import get_settings
 from app.core.supabase_client import get_supabase
 from app.services.import_service import (
+    ImportOutcomeUnknownError,
+    ImportStorageError,
     ImportValidationError,
     UploadTooLargeError,
     import_master_data,
@@ -46,6 +48,10 @@ def import_certiport(file: UploadFile = File(...)):
         raise HTTPException(status_code=413, detail=str(exc)) from None
     except ImportValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ImportOutcomeUnknownError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    except ImportStorageError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
     except Exception:
         raise HTTPException(status_code=500, detail="Import Certiport gagal diproses.") from None
 

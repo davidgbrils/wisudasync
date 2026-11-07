@@ -6,11 +6,10 @@ from typing import Any, BinaryIO
 import copy
 import uuid
 
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl import load_workbook
 from supabase import Client
 
-from app.services.import_service import ImportValidationError, get_active_import_id
+from app.services.import_service import ImportValidationError, _read_upload, get_active_import_id
 from app.services.matching_service import (
     DATA_TIDAK_DITEMUKAN,
     PENDING,
@@ -22,7 +21,7 @@ from app.services.matching_service import (
     build_wisuda_fill_values,
     validate_wisuda_complete,
 )
-from app.services.wisuda_validation_service import parse_wisuda_for_sync
+from app.services.wisuda_validation_service import _header_row, _nim_text, parse_wisuda_for_sync
 from app.core.prodi import is_mcf_relevant, resolve_kode_prodi, resolve_program_studi
 
 
@@ -38,6 +37,10 @@ class SyncExecutionError(RuntimeError):
     """Kegagalan selama proses sinkronisasi."""
 
 
+class SyncStorageUnavailableError(RuntimeError):
+    """Bucket private sumber Wisuda belum tersedia atau tidak dapat diakses."""
+
+
 class ReviewPolicyBlockedError(PermissionError):
     """ADR-009: Kebijakan penunjukan reviewer belum disahkan."""
 
@@ -50,11 +53,16 @@ class ExportBlockedByPolicyError(PermissionError):
     """ADR-003/005/006/010/011: Ekspor final diblokir sebelum pengesahan resmi ITCC."""
 
 
+class ExportSourceUnavailableError(RuntimeError):
+    """Workbook asal sesi tidak tersedia untuk ekspor yang menjaga format."""
+
+
 ALLOWED_REVIEW_DECISIONS = ("KONFIRMASI_COCOK", "TIDAK_COCOK", "TUNDA_VERIFIKASI")
 ADR_009_REVIEWER_POLICY_APPROVED = False  # ADR-009 berstatus TERBUKA per docs/14_DECISIONS.md
 # Disetujui pemilik project 2026-10-23: isi kolom hanya untuk status LULUS,
 # format "MOS (Lulus)"/"MCF (Lulus)", Title "MOS"/"MCF", berkas keluaran baru.
 ADR_OUTPUT_MAPPING_APPROVED = True
+SOURCE_BUCKET = "wisuda-source"
 
 
 def _get_import_file_name(supabase: Client, import_id: str | None) -> str | None:
@@ -95,7 +103,8 @@ def create_and_execute_sync(
     7. Perbarui status sesi menjadi COMPLETED beserta ringkasan total.
     8. Jika gagal di tengah, status sesi diubah menjadi FAILED beserta pesan error aman.
     """
-    wisuda_rows = parse_wisuda_for_sync(file_obj, file_name, max_upload_bytes)
+    source_content = _read_upload(file_name, file_obj, max_upload_bytes)
+    wisuda_rows = parse_wisuda_for_sync(BytesIO(source_content), file_name, max_upload_bytes)
 
     sitasi_import_id = get_active_import_id(supabase, "SITASI")
     certiport_import_id = get_active_import_id(supabase, "CERTIPORT")
@@ -112,6 +121,7 @@ def create_and_execute_sync(
         )
 
     session_id = str(uuid.uuid4())
+    source_path = f"{session_id}.xlsx"
     now_iso = datetime.now(timezone.utc).isoformat()
 
     session_data = {
@@ -131,6 +141,17 @@ def create_and_execute_sync(
     supabase.table("sync_sessions").insert(session_data).execute()
 
     try:
+        try:
+            supabase.storage.from_(SOURCE_BUCKET).upload(
+                path=source_path,
+                file=source_content,
+                file_options={"content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "upsert": "false"},
+            )
+        except Exception:
+            raise SyncStorageUnavailableError(
+                "Penyimpanan private sumber Wisuda belum tersedia. Periksa bucket wisuda-source."
+            ) from None
+        supabase.table("sync_sessions").update({"original_file_path": source_path}).eq("id", session_id).execute()
         _, sitasi_rows = fetch_active_sitasi_rows(supabase)
         _, certiport_rows = fetch_active_certiport_rows(supabase)
 
@@ -188,7 +209,15 @@ def create_and_execute_sync(
             prodi_val = resolve_program_studi(kode_prodi_val, r.get("program_studi"))
 
             certiport_match = r.get("certiport_match", {}) or {}
-            if r.get("name_match"):
+            if certiport_match.get("status") == "MATCHED" and any(
+                c.get("reason") == "fuzzy_90_identity" for c in certiport_match.get("candidates", [])
+            ):
+                name_match_type = "CERTIPORT_FUZZY_90"
+            elif certiport_match.get("status") == "MATCHED" and any(
+                c.get("reason") == "prefix_variant_identity" for c in certiport_match.get("candidates", [])
+            ):
+                name_match_type = "CERTIPORT_PREFIX_VARIANT"
+            elif r.get("name_match"):
                 name_match_type = r.get("name_match")
             elif certiport_match.get("status") == "MATCHED":
                 name_match_type = "CERTIPORT_EXACT"
@@ -281,12 +310,18 @@ def create_and_execute_sync(
 
     except Exception as exc:
         try:
+            supabase.storage.from_(SOURCE_BUCKET).remove([source_path])
+        except Exception:
+            pass
+        try:
             supabase.table("sync_sessions").update({
                 "status": "FAILED",
                 "error_message": "Terjadi kesalahan saat memproses data sinkronisasi.",
             }).eq("id", session_id).execute()
         except Exception:
             pass
+        if isinstance(exc, SyncStorageUnavailableError):
+            raise
         raise SyncExecutionError("Proses sinkronisasi gagal diproses.") from exc
 
 
@@ -306,7 +341,10 @@ def list_sync_sessions(
         .range(offset, offset + limit - 1)
         .execute()
     )
-    items = response.data or []
+    items = [
+        {k: v for k, v in item.items() if k not in ("original_file_path", "output_file_path")}
+        for item in (response.data or [])
+    ]
     total = response.count if response.count is not None else len(items)
 
     return {
@@ -394,7 +432,7 @@ def list_sync_results(
     if status:
         status_clean = status.strip().upper()
         if status_clean == PERLU_VERIFIKASI:
-            query = query.in_("validation_status", [PERLU_VERIFIKASI, TIDAK_LULUS])
+            query = query.in_("validation_status", [PERLU_VERIFIKASI, TIDAK_LULUS, PENDING])
         else:
             query = query.eq("validation_status", status_clean)
 
@@ -856,7 +894,7 @@ def submit_review(
     items = all_res.data or []
     tot_valid = sum(1 for x in items if x.get("validation_status") == VALID)
     tot_nf = sum(1 for x in items if x.get("validation_status") == DATA_TIDAK_DITEMUKAN)
-    tot_rev = sum(1 for x in items if x.get("needs_review") or x.get("validation_status") in (PERLU_VERIFIKASI, PENDING))
+    tot_rev = sum(1 for x in items if x.get("validation_status") not in (VALID, DATA_TIDAK_DITEMUKAN))
 
     supabase.table("sync_sessions").update({
         "total_valid": tot_valid,
@@ -884,15 +922,7 @@ def generate_sync_export_workbook(
     session_id: str,
     mode: str = "final",
 ) -> BytesIO:
-    """Hasilkan workbook Wisuda dengan kolom sertifikasi terisi.
-
-    Aturan yang disetujui 2026-10-23:
-    - Hanya status VALID (LULUS) yang mengisi sel.
-    - Format: "MOS (Lulus)" / "MCF (Lulus)" / "MTCNA (Lulus)".
-    - Title: "MOS", "MCF", "MTCNA", atau kombinasinya ("MOS, MTCNA", "MOS, MCF", dst.).
-    - Sel yang tidak lulus dibiarkan kosong.
-    Mode 'draft' tetap tersedia sebagai pratinjau berlabel.
-    """
+    """Isi salinan workbook asal; sheet, formula, dan format lain dipertahankan."""
     mode_clean = mode.strip().lower() if mode else "final"
 
     if mode_clean == "final" and not ADR_OUTPUT_MAPPING_APPROVED:
@@ -901,6 +931,27 @@ def generate_sync_export_workbook(
         )
 
     session = get_sync_session(supabase, session_id)
+    source_path = session.get("original_file_path")
+    if not source_path:
+        raise ExportSourceUnavailableError(
+            "Workbook asal sesi ini tidak tersimpan. Sinkronisasi ulang untuk ekspor yang menjaga format."
+        )
+    try:
+        source_content = supabase.storage.from_(SOURCE_BUCKET).download(source_path)
+        wb = load_workbook(BytesIO(source_content), data_only=False, keep_links=True)
+    except Exception:
+        raise ExportSourceUnavailableError("Workbook asal tidak dapat dibaca dari penyimpanan private.") from None
+    if "Wisuda" not in wb.sheetnames:
+        wb.close()
+        raise ExportSourceUnavailableError("Sheet Wisuda tidak ada pada workbook asal.")
+    ws_wisuda = wb["Wisuda"]
+    header_row, headers = _header_row(ws_wisuda)
+    columns = {name: index + 1 for index, name in enumerate(headers) if name}
+    mcf_column = columns.get("Sertifikasi MCF/MTCNA") or columns.get("Sertifikasi MCF")
+    title_column = columns.get("Title") or columns.get("Title Microsoft")
+    if not all((columns.get("NIM"), columns.get("Sertifikasi MOS"), mcf_column, title_column)):
+        wb.close()
+        raise ExportSourceUnavailableError("Kolom sertifikasi workbook asal belum sesuai template.")
 
     res_resp = (
         supabase.table("sync_results")
@@ -914,61 +965,35 @@ def generate_sync_export_workbook(
     is_draft = mode_clean == "draft"
     prefix = "[DRAFT] " if is_draft else ""
 
-    wb = Workbook()
-    ws_wisuda = wb.active
-    ws_wisuda.title = "Wisuda (DRAFT)" if is_draft else "Wisuda"
-
-    header_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
-    bold_font = Font(bold=True)
-
-    headers = [
-        "No",
-        "Kode Prodi",
-        "Program Studi",
-        "NIM",
-        "Nama",
-        "Sertifikasi MOS",
-        "Sertifikasi MCF/MTCNA",
-        "Title",
-    ]
-    ws_wisuda.append(headers)
-    for col_num in range(1, len(headers) + 1):
-        cell = ws_wisuda.cell(row=1, column=col_num)
-        cell.font = bold_font
-        cell.fill = header_fill
-
-    for idx, r in enumerate(results, start=1):
+    for r in results:
+        row_number = r.get("source_row")
+        if not isinstance(row_number, int) or row_number <= header_row or row_number > ws_wisuda.max_row:
+            wb.close()
+            raise ExportSourceUnavailableError("Nomor baris hasil tidak sesuai workbook asal.")
+        try:
+            source_nim = _nim_text(ws_wisuda.cell(row_number, columns["NIM"]))
+        except (ValueError, OverflowError):
+            source_nim = None
+        if source_nim != str(r.get("nim", "")):
+            wb.close()
+            raise ExportSourceUnavailableError("NIM hasil tidak sesuai workbook asal.")
         fill = build_wisuda_fill_values(r.get("mos_status"), r.get("mcf_status"), r.get("mcf_programs"))
-        nim_val = r.get("nim", "")
-        kode_prodi_val = r.get("kode_prodi") or resolve_kode_prodi(nim_val)
-        prodi_val = r.get("program_studi") or resolve_program_studi(kode_prodi_val)
+        for column, value in (
+            (columns["Sertifikasi MOS"], fill["mos"]),
+            (mcf_column, fill["mcf"]),
+            (title_column, fill["title"]),
+        ):
+            ws_wisuda.cell(row_number, column).value = f"{prefix}{value}" if value else None
 
-        ws_wisuda.append(
-            [
-                idx,
-                kode_prodi_val,
-                prodi_val,
-                nim_val,
-                r.get("nama_wisuda", ""),
-                f"{prefix}{fill['mos']}" if fill["mos"] else "",
-                f"{prefix}{fill['mcf']}" if fill["mcf"] else "",
-                f"{prefix}{fill['title']}" if fill["title"] else "",
-            ]
-        )
-
-    for col_index, width in enumerate([6, 10, 28, 14, 34, 20, 20, 18], start=1):
-        ws_wisuda.column_dimensions[chr(64 + col_index)].width = width
-    ws_wisuda.freeze_panes = "A2"
-
-    ws_audit = wb.create_sheet(title="Ringkasan")
+    audit_title = "Ringkasan"
+    if audit_title in wb.sheetnames:
+        audit_title = "Ringkasan Sinkronisasi"
+    ws_audit = wb.create_sheet(title=audit_title)
     ws_audit.append(["PARAMETER", "NILAI"])
-    ws_audit.cell(row=1, column=1).font = bold_font
-    ws_audit.cell(row=1, column=2).font = bold_font
 
     audit_meta = [
         ("Status Berkas", "DRAFT - PRATINJAU" if is_draft else "FINAL"),
         ("Session ID", session.get("id")),
-        ("Nama File Asli", session.get("file_name")),
         ("Batch SITASI Terpakai", session.get("sitasi_import_id")),
         ("Batch Certiport Terpakai", session.get("certiport_import_id")),
         ("Total Mahasiswa", session.get("total_rows")),

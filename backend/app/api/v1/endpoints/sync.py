@@ -11,11 +11,13 @@ from app.services.import_service import ImportValidationError, UploadTooLargeErr
 from app.services.master_query_service import get_active_import_summary
 from app.services.sync_service import (
     ExportBlockedByPolicyError,
+    ExportSourceUnavailableError,
     ReviewPolicyBlockedError,
     ReviewValidationError,
     SyncBatchMissingError,
     SyncExecutionError,
     SyncSessionNotFoundError,
+    SyncStorageUnavailableError,
     create_and_execute_sync,
     generate_sync_export_workbook,
     get_sync_result_detail,
@@ -87,6 +89,8 @@ def start_sync(
         raise HTTPException(status_code=422, detail=str(exc)) from None
     except SyncBatchMissingError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
+    except SyncStorageUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
     except SyncExecutionError as exc:
         raise HTTPException(status_code=500, detail="Proses sinkronisasi gagal dijalankan.") from exc
     except Exception:
@@ -111,7 +115,7 @@ def get_session_summary(session_id: str):
     """Ringkasan metadata satu sesi sinkronisasi."""
     try:
         session = get_sync_session(get_supabase(), session_id)
-        return {"success": True, "data": session}
+        return {"success": True, "data": {k: v for k, v in session.items() if k not in ("original_file_path", "output_file_path")}}
     except SyncSessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from None
     except Exception:
@@ -214,6 +218,8 @@ def export_sync_workbook(
         )
     except ExportBlockedByPolicyError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from None
+    except ExportSourceUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
     except SyncSessionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from None
     except Exception:

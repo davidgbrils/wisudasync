@@ -138,5 +138,13 @@ Sebelum kode diterapkan ke Production, lakukan protokol 5 langkah di Staging:
 1. **Langkah 1 (DB Migration Dry-Run):** Terapkan skrip migrasi SQL pada database staging; jalankan skrip verifikasi `database/checks/phase4_foundation_check.sql`.
 2. **Langkah 2 (Master Data Batch Test):** Unggah workbook master SITASI dan Certiport sintetis, verifikasi aktivasi batch atomik.
 3. **Langkah 3 (Sync & Review Test):** Unggah daftar wisuda sintetis, pastikan hasil matching, reason codes, dan review trail tersimpan akurat.
-4. **Langkah 4 (Export Gate Proof):** Pastikan ekspor draft menghasilkan watermark `[DRAFT]` dan ekspor final mengembalikan `403 Forbidden` selama belum disahkan.
+4. **Langkah 4 (Export Proof):** Dengan workbook anonim, pastikan ekspor draft berlabel `[DRAFT]`, ekspor final hanya mengisi sel target, dan sheet/formula/format lain tetap utuh.
 5. **Langkah 5 (Sign-off Pemilik):** Presentasikan hasil kepada Kepala ITCC untuk memperoleh persetujuan tertulis implementasi production.
+
+## 9. Prasyarat autentikasi dan ekspor sesi baru (2026-11-02)
+
+- Pada 2026-11-06, bucket `wisuda-source` sudah dibuat melalui Storage API pada project yang dipakai `backend/.env` dengan `APP_ENV=development`. Hasil baca ulang: private, batas 10 MB, MIME XLSX. Migrasi SQL di bawah belum dijalankan; bagian perubahan Auth di dalamnya tetap perlu ditinjau sebelum diterapkan.
+- Terapkan `database/migrations/20261102120000_auth_and_private_wisuda_source.sql` hanya pada Supabase development berizin. SQL ini menghentikan pembuatan profil staff aktif otomatis dan membuat bucket `wisuda-source` private. Migrasi production belum diizinkan.
+- Buat akun Auth petugas secara administratif dan tautkan `profiles.id` ke UUID Auth tersebut, dengan `role=admin` atau `staff` dan `is_active=true` hanya untuk orang yang berwenang. Profil default UUID `00000000-0000-0000-0000-000000000001` bukan akun Auth dan tidak dapat dipakai login.
+- Atur `NEXT_PUBLIC_SUPABASE_URL` dan publishable/anon key di frontend; service-role key hanya di backend. Nonaktifkan public signups pada pengaturan Supabase Auth. Uji login dan ekspor menggunakan fixture anonim sebelum memakai data asli.
+- Kebijakan retensi bucket, backup, dan penghapusan sumber Wisuda masih perlu diputuskan ITCC. Sesi lama tanpa `original_file_path` tidak boleh dibuat ulang dari baris hasil karena format sumber akan hilang.

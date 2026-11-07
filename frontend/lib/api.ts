@@ -139,13 +139,34 @@ export type SyncResultsResponse = {
 };
 
 async function authorizedHeaders(): Promise<HeadersInit> {
-  // Mode langsung Administrator tanpa autentikasi login/register
-  return {};
+  const supabase = createSupabaseBrowserClient();
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session?.access_token) {
+    throw new Error("Sesi login berakhir. Silakan masuk kembali.");
+  }
+  return { Authorization: `Bearer ${data.session.access_token}` };
 }
 
 function safeError(status: number, fallback: string, isUpload = false): string {
   if (isUpload && status === 413) return "Ukuran file melewati batas 10 MiB.";
   if (isUpload && (status === 400 || status === 422)) return "File belum sesuai format atau template yang diwajibkan.";
+  if (status === 401) return "Sesi login berakhir. Silakan masuk kembali.";
+  if (status === 403) return "Akun tidak memiliki akses untuk melakukan impor.";
+  return fallback;
+}
+
+async function uploadError(response: Response, fallback: string): Promise<string> {
+  const status = response.status;
+  const statusMessage = safeError(status, "", true);
+  if (statusMessage) return statusMessage;
+  if (status === 503) {
+    try {
+      const body = await response.clone().json() as { detail?: unknown };
+      if (typeof body.detail === "string") return body.detail;
+    } catch {
+      // Gunakan pesan aman bawaan jika respons backend bukan JSON.
+    }
+  }
   return fallback;
 }
 
@@ -183,7 +204,7 @@ export async function uploadExcel<T = unknown>(path: string, file: File): Promis
     if (error instanceof Error && error.message.startsWith("Sesi login")) throw error;
     throw new Error("Layanan import belum dapat dijangkau. Periksa koneksi backend.");
   }
-  if (!response.ok) throw new Error(safeError(response.status, "Import gagal diproses. Coba lagi.", true));
+  if (!response.ok) throw new Error(await uploadError(response, "Import gagal diproses. Coba lagi."));
   return await response.json() as T;
 }
 

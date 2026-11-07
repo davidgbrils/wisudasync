@@ -230,6 +230,14 @@ def test_sitasi_numeric_nim_uses_zero_mask_format():
     assert parsed.rows[0]["nim"] == "00012345"
 
 
+def test_sitasi_blank_row_keeps_nim_and_source_row_aligned():
+    parsed = parse_sitasi(
+        sitasi_fixture([sitasi_row("00123", "Nama Satu", "Lulus"), [None] * len(SITASI_HEADERS), sitasi_row("00456", "Nama Dua", "Lulus")]),
+        "fixture.xlsx",
+    )
+    assert [(row["source_row"], row["nim"]) for row in parsed.rows] == [(2, "00123"), (4, "00456")]
+
+
 def test_certiport_finds_header_on_row_four_and_keeps_pass_fail():
     parsed = parse_certiport(
         certiport_fixture(
@@ -349,6 +357,30 @@ def test_sitasi_endpoint_hides_internal_storage_error(monkeypatch):
     assert error.value.status_code == 500
     assert error.value.detail == "Import SITASI gagal diproses."
     assert "secret student value" not in error.value.detail
+
+
+def test_sitasi_endpoint_returns_safe_storage_diagnostic(monkeypatch):
+    monkeypatch.setattr(
+        sitasi_endpoint,
+        "get_settings",
+        lambda: SimpleNamespace(max_upload_size_bytes=import_service.MAX_UPLOAD_BYTES),
+    )
+    monkeypatch.setattr(sitasi_endpoint, "get_supabase", lambda: object())
+    monkeypatch.setattr(
+        sitasi_endpoint,
+        "import_master_data",
+        lambda **_: (_ for _ in ()).throw(import_service.ImportStorageError("Data impor gagal disimpan; batch sebelumnya tetap aktif.")),
+    )
+    upload = UploadFile(
+        filename="fixture.xlsx",
+        file=sitasi_fixture([sitasi_row("001", "Nama Uji", "Lulus")]),
+    )
+
+    with pytest.raises(HTTPException) as error:
+        sitasi_endpoint.import_sitasi(upload)
+
+    assert error.value.status_code == 503
+    assert error.value.detail == "Data impor gagal disimpan; batch sebelumnya tetap aktif."
 
 
 def test_import_success_activates_batch_through_rpc_and_keeps_duplicate_rows():
@@ -503,3 +535,53 @@ def test_parse_certiport_preserves_duplicate_rows():
     assert len(parsed.rows) == 2
     assert [row["source_row"] for row in parsed.rows] == [2, 3]
     assert [row["full_name"] for row in parsed.rows] == ["Nama Uji", "Nama Uji"]
+
+
+def test_parse_certiport_smart_sheet_detection_results_264():
+    workbook = make_xlsx(
+        "Results (264)",
+        SIMPLIFIED_CERTIPORT_HEADERS,
+        [
+            ["Budi Santoso", "MOS", 950, "Lulus"],
+        ],
+    )
+
+    parsed = parse_certiport(workbook, "data_certiport.xlsx")
+    assert parsed.sheet_name == "Results (264)"
+    assert len(parsed.rows) == 1
+    assert parsed.rows[0]["full_name"] == "Budi Santoso"
+    assert parsed.rows[0]["program_name"] == "MICROSOFT OFFICE SPECIALIST"
+    assert parsed.rows[0]["certification_name"] == "MOS"
+
+
+def test_parse_certiport_smart_sheet_detection_custom_sheet_name():
+    workbook = make_xlsx(
+        "Sheet_Cert_Custom",
+        SIMPLIFIED_CERTIPORT_HEADERS,
+        [
+            ["Siti Rahma", "MCF", 820, "Lulus"],
+        ],
+    )
+
+    parsed = parse_certiport(workbook, "data_certiport.xlsx")
+    assert parsed.sheet_name == "Sheet_Cert_Custom"
+    assert len(parsed.rows) == 1
+    assert parsed.rows[0]["full_name"] == "Siti Rahma"
+    assert parsed.rows[0]["program_name"] == "MICROSOFT CERTIFIED FUNDAMENTALS"
+
+
+def test_parse_certiport_resolves_subexam_names_to_program():
+    workbook = make_xlsx(
+        "Results (264)",
+        SIMPLIFIED_CERTIPORT_HEADERS,
+        [
+            ["Andi Wijaya", "Microsoft Excel (Office 2019)", 980, "LULUS"],
+            ["Dewi Lestari", "AI-900: Microsoft Azure AI Fundamentals", 850, "LULUS"],
+        ],
+    )
+
+    parsed = parse_certiport(workbook, "data_certiport.xlsx")
+    assert parsed.rows[0]["program_name"] == "MICROSOFT OFFICE SPECIALIST"
+    assert parsed.rows[0]["certification_name"] == "MICROSOFT EXCEL (OFFICE 2019)"
+    assert parsed.rows[1]["program_name"] == "MICROSOFT CERTIFIED FUNDAMENTALS"
+    assert parsed.rows[1]["certification_name"] == "AI-900: MICROSOFT AZURE AI FUNDAMENTALS"

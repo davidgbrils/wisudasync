@@ -642,22 +642,61 @@ Penanggung jawab:
   - Backend: `.\venv\Scripts\python.exe -m pytest tests -q` — 182 PASS (100% passed).
   - Frontend: `npm run typecheck` — PASS (0 errors).
 
-## 2026-10-26 — Penambahan Filter Program Sertifikasi (MOS / MCF / MTCNA)
+## 2026-10-28 — Smart Sheet Detection & Fleksibilitas Kategori Certiport (MOS / MCF)
 
-- **Kebutuhan bisnis & UX:**
-  - Menambahkan kontrol filter program pada halaman hasil sinkronisasi agar pengguna dapat memfilter baris berdasarkan program sertifikasi yang diambil mahasiswa: `MOS`, `MCF`, atau `MTCNA`.
-  - Filter program dapat dikombinasikan secara fleksibel dengan pencarian teks (NIM/Nama) dan filter status hasil (Valid, Perlu Verifikasi, Tidak Ditemukan).
+- **Kebutuhan bisnis & operasional:**
+  - File hasil ekspor Certiport memiliki variasi nama sheet seperti `Results (264)` selain `Results (264) Plus`, serta kolom `Sertifikasi` yang dapat berupa kode kategori ringkas (`MOS`, `MCF`) maupun nama sub-ujian spesifik (`Microsoft Excel...`, `AI-900:...`).
+  - Mengimplementasikan Smart Sheet Detection otomatis agar import Certiport tidak gagal ketika nama sheet bervariasi atau berupa lembar kerja kustom.
+  - Menambahkan resolusi kategori sub-ujian cerdas agar program `MOS` dan `MCF` terpetakan secara otomatis dan tepat sasaran.
 - **Perubahan kode:**
-  - `backend/app/services/sync_service.py`:
-    - Fungsi pembantu `_row_has_program` untuk mendeteksi keberadaan rekaman ujian/status per program (`MOS`, `MCF`, `MTCNA`).
-    - Penambahan parameter `program` pada `list_sync_results` dengan filtering akurat dan paginasi yang tetap terjaga.
-  - `backend/app/api/v1/endpoints/sync.py`: Menerima query parameter `program` pada `GET /{session_id}/results`.
-  - `backend/tests/test_sync_service.py` & `test_sync_api.py`: Penambahan unit test untuk query dan filter program.
-  - `frontend/lib/api.ts`: Penambahan parameter `program?: string` pada `getSyncResults`.
-  - `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`:
-    - State `programFilter` (`""` / `"MOS"` / `"MCF"` / `"MTCNA"`).
-    - Elemen select dropdown `Program:` pada filter bar dengan opsi `Semua Program`, `MOS`, `MCF`, dan `MTCNA`.
-    - Tombol `Reset Filter` untuk mereset seluruh filter (status dan program) sekaligus.
+  - `backend/app/services/import_service.py`:
+    - Menambahkan `CERTIPORT_SHEET_CANDIDATES = ("Results (264) Plus", "Results (264)", "Results")`.
+    - Mengadaptasi `_open_validated_workbook` dan `_read_sheet` untuk mendukung kandidat nama sheet multi-prioritas dan fallback penelusuran sheet yang memiliki kolom wajib (`Smart Sheet Detection`).
+    - Menambahkan fungsi `_resolve_certiport_category` untuk memetakan nama sub-ujian (Office/Excel/Word/PowerPoint -> MOS; AI-900/AZ-900/Azure -> MCF) serta nilai ringkas `MOS`/`MCF`.
+    - Menyimpan nama sheet aktual dari `worksheet.title` pada objek `ParsedWorkbook`.
+  - `backend/tests/test_import_service.py`:
+    - Menambahkan test `test_parse_certiport_smart_sheet_detection_results_264` untuk sheet `Results (264)`.
+    - Menambahkan test `test_parse_certiport_smart_sheet_detection_custom_sheet_name` untuk sheet bernama bebas yang memuat header wajib.
+    - Menambahkan test `test_parse_certiport_resolves_subexam_names_to_program` untuk memverifikasi auto-resolusi sub-ujian.
 - **Pengujian:**
-  - Backend: `.\venv\Scripts\python.exe -m pytest tests -q` — 182 PASS (100% passed).
-  - Frontend: `npm run typecheck` — PASS (0 errors).
+  - Backend: `venv\Scripts\python.exe -m pytest` — 185 PASS (100% passed).
+  - Integrasi berkas lokal: `parse_certiport` berhasil memproses 1.453 baris `data_certiport.xlsx` (sheet `Results (264)`).
+  - End-to-end matching: validasi silang 424 wisudawan terhadap 3.877 baris SITASI dan 1.453 baris Certiport berjalan sukses.
+  - Frontend: `npm run build` — PASS (0 errors, optimized production bundle).
+
+# 2026-11-01 — Label hasil sinkronisasi
+
+- Mengganti label kartu dan filter menjadi Master Data, Cocok, dan Belum Tersertifikasi sesuai permintaan pemilik project. Nilai status API tetap sama.
+- Menampilkan satu badge kategori hasil per mahasiswa; status MOS dan MCF/MTCNA tetap ditulis sebagai rincian teks di kolom masing-masing agar hasil program yang berbeda tidak tampak sebagai dua kategori baris.
+- Pemeriksaan frontend: lihat `docs/19_AI_PROGRESS.md`.
+# 2026-11-02 — SITASI lulus menjadi status utama
+
+- Jika NIM dan nama Wisuda cocok dengan SITASI, status program mengikuti hasil SITASI. SITASI `LULUS` tetap `VALID` walau data Certiport memiliki hasil FAIL atau temuan lain; bukti Certiport tetap tersimpan sebagai rincian.
+- Memperbarui regresi validasi untuk memastikan status keseluruhan tetap cocok dan temuan Certiport tetap terlihat.
+- Pemeriksaan: dicatat di `docs/19_AI_PROGRESS.md`.
+# 2026-11-02 — Pencarian nama setelah variasi Muhammad
+
+- Menambah pencarian identitas Certiport tahap kedua berdasarkan seluruh sisa nama setelah awalan `Muhammad/Muhamad/Mohammad/Mohamad`, hanya saat nama penuh tidak ditemukan.
+- Hasil unik dengan sisa nama persis dapat dipakai sebagai identitas. Hasil ganda, sisa nama parsial, dan konflik NIM tetap untuk review.
+- Menyimpan alasan `prefix_variant_identity` pada kandidat; menyelaraskan test konflik Certiport dengan aturan SITASI sebagai acuan yang telah disetujui.
+# 2026-11-02 — Perbaikan P0–P2 dari audit XLSX dan browser
+
+- P0: endpoint data kembali mewajibkan bearer token Supabase dan profil `staff`/`admin` yang aktif. Login frontend mengirim token ke FastAPI; route dashboard tanpa sesi diarahkan ke `/login`. Pendaftaran langsung tetap dinonaktifkan.
+- P1: ekspor `Sertifikasi MCF/MTCNA` menulis `MCF&MTCNA` hanya bila dua ujian benar-benar `VALID`; PASS Certiport yang berkonflik tidak dipromosikan. Tanpa SITASI, satu kandidat nama fuzzy minimal 90% dapat otomatis cocok hanya dengan program relevan, ujian teridentifikasi, semua hasil PASS, dan tanpa konflik NIM. Kandidat ambigu tetap untuk review.
+- P1: parser SITASI membaca sel NIM secara berurutan, menghindari pembacaan ulang XML workbook `read_only` per baris.
+- P2: total sesi sesudah review dihitung dari kategori status yang saling lepas; filter Perlu Verifikasi mencakup PENDING. Ekspor memakai workbook sumber dari bucket private dan hanya mengubah sel target; sesi lama tanpa sumber mengembalikan 409.
+- Migrasi lokal `20261102120000_auth_and_private_wisuda_source.sql` disiapkan untuk menghentikan profil aktif otomatis dan membuat bucket private. Belum diterapkan ke Supabase mana pun.
+- Bukti lokal: 199 test backend PASS; `npm.cmd run build` PASS; pembacaan read only XLSX proyek 424/3.877/1.453 baris dan 424 hasil dalam sekitar 13 detik; headless Chrome mengalihkan `/sinkronisasi` tanpa sesi ke `/login`. Login berakun resmi, bucket Supabase, dan UAT ekspor live belum diuji.
+
+# 2026-11-02 — Diagnostik kegagalan import
+
+- Endpoint SITASI dan Certiport kini mengembalikan pesan aman untuk kegagalan penyimpanan dan aktivasi batch; status aktivasi yang belum pasti dibedakan sebagai HTTP 503.
+- Frontend menampilkan pesan aman dari backend untuk HTTP 503 dan memberi arahan spesifik untuk sesi login 401 atau akses 403. Exception internal tetap disembunyikan.
+- Verifikasi lokal: `backend/venv/Scripts/python.exe -m pytest tests/test_import_service.py -q` — 25 PASS; `npm.cmd run typecheck` — PASS.
+- Penyebab kegagalan impor yang dilaporkan belum dapat ditetapkan tanpa status/respons dari percobaan itu. Runtime Supabase tidak diuji.
+
+# 2026-11-06 — Bucket private sumber Wisuda
+
+- Saat ditelusuri, Storage API project development yang dikonfigurasi backend mengembalikan `400 Bucket not found` untuk `wisuda-source`.
+- Bucket dibuat lewat Storage API dengan akses private, batas 10 MB, dan MIME XLSX sesuai konfigurasi migrasi yang sudah ada. Baca ulang mengembalikan HTTP 200 dan konfigurasi yang sesuai.
+- Tidak ada perubahan kode, migrasi SQL, upload data asli, atau ekspor live. Bagian Auth pada migrasi belum diterapkan.

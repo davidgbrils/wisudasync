@@ -43,7 +43,7 @@ Nama contoh: `data_certiport.xlsx` · Sheet: `Results (264) Plus`.
 | `Nilai` | `score` | Bukti tambahan, **bukan** putusan |
 | `Status` | `result` | `LULUS`/`PASS` → `PASS`; `TIDAK LULUS`/`GAGAL`/`FAIL` → `FAIL` |
 
-**Tidak ada NIM di file Certiport.** Identitas hanya dikonfirmasi bila **seluruh token nama sama** setelah normalisasi (urutan kata dan gelar akademik boleh berbeda). Kecocokan sebagian/fuzzy hanya menjadi kandidat saran: record-nya tidak dipakai sebagai bukti, tidak menghasilkan exam, dan tidak memberi skor kepada mahasiswa. Skema lama (`First Name`, `Last Name`, `Full Name`, `Program Name`, `Certification Name`, `Score`, `Result`) masih dapat dibaca sebagai fallback; jika record lama menyediakan NIM, NIM yang berbeda dari wisuda dianggap konflik identitas.
+**Tidak ada NIM di file Certiport.** Identitas exact memakai seluruh token nama setelah normalisasi; variasi awalan Muhammad dapat memakai sisa nama persis dan unik. Keputusan 2026-11-02 mengizinkan satu kandidat fuzzy dengan skor minimal 90% saat SITASI kosong, dengan syarat program relevan, ujian tercatat, seluruh hasil `PASS`, dan tanpa konflik NIM. Kandidat ambigu atau di bawah ambang tetap hanya saran review. Skema lama (`First Name`, `Last Name`, `Full Name`, `Program Name`, `Certification Name`, `Score`, `Result`) masih dapat dibaca sebagai fallback.
 
 ## 4. Pemetaan nama/status program awal
 | SITASI `Sertifikasi` | Certiport `Program Name` | Status mapping |
@@ -74,7 +74,7 @@ Nama contoh: `data_certiport.xlsx` · Sheet: `Results (264) Plus`.
 ## 6. Kasus data yang wajib ditangani
 | Kasus | Perlakuan |
 |---|---|
-| NIM hanya ada di wisuda | `DATA_TIDAK_DITEMUKAN` pada hasil keseluruhan; boleh munculkan saran review kandidat, tetapi tidak auto VALID |
+| NIM hanya ada di wisuda | Periksa Certiport; kandidat tunggal yang sesuai dan `PASS` dapat `VALID`, kandidat lain tetap review/tidak ditemukan |
 | Satu NIM ada pada 4 baris SITASI | Simpan semua; kelompokkan per program + ujian + attempt |
 | Nama wisuda berbeda dari SITASI dengan NIM sama | Catat perbedaan; tidak menolak NIM, tetapi flag review jika bermakna |
 | Nama Certiport sama pada lebih dari satu record | Bedakan record ujian vs orang berbeda; cek kombinasi program dan hasil; jika ambigu review |

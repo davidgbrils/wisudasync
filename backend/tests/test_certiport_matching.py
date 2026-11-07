@@ -80,6 +80,52 @@ def _run_pipeline(wisuda, sitasi, certiport):
     return match_sitasi_to_certiport(ws, certiport, certiport_import_id="cert-batch")
 
 
+def test_muhammad_prefix_variants_match_unique_remaining_name():
+    for prefix in ("MUHAMMAD", "MUHAMAD", "MOHAMMAD", "MOHAMAD"):
+        result = _run_pipeline(
+            [wisuda_row(nama=f"{prefix} ALFARISY AKBAR")],
+            [],
+            [certiport_row(full_name="ALFARISY AKBAR", result="Pass")],
+        )[0]
+        assert result["certiport_match"]["status"] == "MATCHED"
+        assert result["certiport_match"]["candidates"][0]["reason"] == "prefix_variant_identity"
+        assert result["overall_status"] == VALID
+
+
+def test_muhammad_prefix_requires_all_remaining_name_tokens():
+    result = _run_pipeline(
+        [wisuda_row(nama="MUHAMMAD ALFARISY AKBAR")],
+        [],
+        [certiport_row(full_name="MUHAMMAD AKBAR", result="Pass")],
+    )[0]
+    assert result["certiport_match"]["status"] == PERLU_VERIFIKASI
+    assert result["exams"] == []
+
+
+def test_muhammad_prefix_ambiguous_names_stay_review_only():
+    result = _run_pipeline(
+        [wisuda_row(nama="MUHAMMAD ALFARISY AKBAR")],
+        [],
+        [
+            certiport_row(id=101, full_name="ALFARISY AKBAR", result="Pass"),
+            certiport_row(id=102, full_name="MOHAMAD ALFARISY AKBAR", result="Pass"),
+        ],
+    )[0]
+    assert result["certiport_match"]["status"] == PERLU_VERIFIKASI
+    assert result["exams"] == []
+
+
+def test_muhammad_prefix_nim_conflict_stays_review_only():
+    result = _run_pipeline(
+        [wisuda_row(nim="209900001", nama="MUHAMMAD ALFARISY AKBAR")],
+        [],
+        [certiport_row(full_name="ALFARISY AKBAR", nim="209900002", result="Pass")],
+    )[0]
+    assert result["certiport_match"]["status"] == PERLU_VERIFIKASI
+    assert result["certiport_match"]["nim_conflicts"]
+    assert result["exams"] == []
+
+
 # ---------------------------------------------------------------------------
 # Alias matching
 # ---------------------------------------------------------------------------
@@ -246,7 +292,7 @@ def test_valid_sitasi_lulus_certiport_pass_exact_alias():
     exam = r["exams"][0]
     cv = exam["certiport_validation"]
     assert cv["combined_status"] == VALID
-    assert cv["reason"] == "SITASI LULUS (NIM+nama cocok); status cukup tanpa Certiport PASS."
+    assert cv["reason"] == "SITASI LULUS (NIM+nama cocok); temuan Certiport tidak mengubah status."
 
 
 # ---------------------------------------------------------------------------
@@ -301,8 +347,9 @@ def test_same_name_multiple_records_conflicting_fail_perlu_verifikasi():
     ]
     results = _run_pipeline(wisuda, sitasi, certiport)
     cv = results[0]["exams"][0]["certiport_validation"]
-    # SITASI LULUS tapi ada rekaman Certiport FAIL pada ujian sama → konflik.
-    assert cv["combined_status"] == PERLU_VERIFIKASI
+    # SITASI LULUS tetap valid; kedua rekaman Certiport tetap tercatat.
+    assert cv["combined_status"] == VALID
+    assert len(cv["certiport_evidence"]) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -340,8 +387,8 @@ def test_sitasi_lulus_certiport_fail_conflict():
     )]
     results = _run_pipeline(wisuda, sitasi, certiport)
     cv = results[0]["exams"][0]["certiport_validation"]
-    assert cv["combined_status"] == PERLU_VERIFIKASI
-    assert "konflik" in cv["reason"].lower() or "tidak ada PASS" in cv["reason"]
+    assert cv["combined_status"] == VALID
+    assert cv["certiport_evidence"][0]["result"] == "FAIL"
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +477,7 @@ def test_fuzzy_only_no_exact_perlu_verifikasi():
     wisuda = [wisuda_row(nim="999999999", nama="MAHASISWA CONTOH")]
     sitasi = [sitasi_row(nim="209900001", nama="ORANG LAIN", sertifikasi="MOS", sub_program="Word", status="LULUS")]
     certiport = [certiport_row(
-        full_name="MAHASISWA CONTOHH",
+        full_name="MAHASISWA CONTOH LAIN",
         program_name="Microsoft Office Specialist",
         certification_name="Word",
         result="Pass",

@@ -1,12 +1,12 @@
 # 06 — Aturan Bisnis: Matching, Sertifikasi dan Validasi
 
-Dokumen ini adalah **single source of truth** untuk logika pencocokan. Bersifat rancangan awal; aturan ujian dan ekspor memerlukan persetujuan pembimbing/petugas ITCC.
+Dokumen ini mencatat aturan pencocokan. Keputusan terbaru pemilik project pada 2026-11-02 tercatat di ADR-004 dan pembaruan di bawah; kebijakan retensi dan reviewer institusi masih terbuka.
 
 ## 1. Prinsip utama
 - **Identitas Wisuda↔SITASI:** cocokkan NIM terlebih dahulu (exact setelah normalisasi).
 - **Identitas SITASI↔Certiport:** karena Certiport tanpa NIM, buat *kandidat* berdasarkan nama asli/normalisasi dan keunikan.
 - **Kesesuaian ujian:** cocokkan kategori **dan** subprogram/sertifikasi (nama/versi ujian) menggunakan daftar alias yang dapat diaudit.
-- **Kesimpulan:** ambigu/konflik tidak otomatis `VALID`. Fuzzy hanya memberi usulan.
+- **Kesimpulan:** ambigu/konflik tidak otomatis `VALID`. Fuzzy minimal 90% dapat dipakai hanya untuk kandidat unik, tanpa SITASI, dengan program sesuai dan hasil `PASS`.
 - **Riwayat:** banyak attempt pada ujian yang sama adalah wajar; tidak memilih baris pertama saja.
 
 ## 2. Tahapan algoritma
@@ -14,7 +14,10 @@ Dokumen ini adalah **single source of truth** untuk logika pencocokan. Bersifat 
 flowchart TD
   A[Baris Wisuda] --> B[Normalisasi NIM dan nama]
   B --> C{NIM ditemukan di SITASI aktif?}
-  C -- Tidak --> NF[DATA_TIDAK_DITEMUKAN]
+  C -- Tidak --> X[Cari identitas unik di Certiport]
+  X --> Y{Nama sesuai dan hasil PASS?}
+  Y -- Ya --> V
+  Y -- Tidak --> NF[DATA_TIDAK_DITEMUKAN atau PERLU_VERIFIKASI]
   C -- Ya --> D[Ambil SEMUA attempt NIM]
   D --> E[Kelompokkan kategori + ujian]
   E --> F[Agregasi status attempt dan identifikasi konflik]
@@ -41,7 +44,7 @@ flowchart TD
 5. `MIN_TWO_WORDS`: kandidat Certiport hanya dianggap plausibel bila nama lengkap berbagi **minimal 2 kata** dengan nama target (contoh: `DAVID GABRIEL SEMBIRING` ⟷ `DAVID SEMBIRING`, `DAVID GABRIEL`, `GABRIEL SEMBIRING`, `GABRIEL DAVID`). Kandidat dengan kurang dari 2 kata cocok **bukan kandidat** dan mengarah ke `DATA_TIDAK_DITEMUKAN`. Nama target yang hanya satu kata memakai batas 1 kata agar nama tunggal yang sah tetap dapat dicocokkan.
 6. `DECORATION_FOLD`: tanda baca dan kurung diabaikan saat normalisasi, sehingga `( DAVID.)`, `DAVID.`, dan `david` setara dengan `DAVID`. Nilai `nama_normalized`/`full_name_normalized` yang tersimpan dinormalkan ulang (idempoten) agar data lama yang masih berhias tanda baca tetap cocok untuk nama satu kata.
 
-**Kebijakan default:** Jangan membuat threshold fuzzy sebagai ketetapan bisnis. Threshold (contoh usulan `>=90`, bukan fakta kelayakan) dipakai untuk menampilkan kandidat, dan dievaluasi pada test. Tidak boleh digunakan sendirian untuk menetapkan `VALID`. Kandidat yang lolos `MIN_TWO_WORDS` tetap berstatus `PERLU_VERIFIKASI` (bukan `VALID`) sampai ada bukti kuat (nama tepat & unik atau NIM+nama SITASI).
+**Keputusan terbaru:** Saat NIM tidak ditemukan di SITASI, skor nama fuzzy minimal 90% dapat mengonfirmasi identitas hanya jika cakupan token ikut mencapai skor tersebut, satu kandidat saja mencapai 90%, tidak ada konflik NIM, kategori program dikenali/relevan, sub-ujian tercatat, dan semua hasil kandidat `PASS`. Nilai ini bukan ambang kelulusan ujian. Kandidat lain tetap hanya saran review.
 
 ## 4. Kategori & kesetaraan ujian
 Mapping kategori kandidat:
@@ -68,20 +71,20 @@ Untuk satu kombinasi `(NIM, kategori, ujian ekuivalen)`:
 | Bukti SITASI | Certiport (identitas+ujian sesuai dan unik) | Hasil per ujian | Catatan |
 |---|---|---|---|
 | Ada `LULUS` | Ada `PASS` | `VALID` | Catat record bukti |
-| Ada `LULUS` | Tidak ada kandidat unik | `PERLU_VERIFIKASI` | Bukti eksternal belum pasti |
+| Ada `LULUS` dan identitas SITASI cocok | Tidak ada kandidat unik | `VALID` | SITASI menjadi acuan; Certiport hanya rincian tambahan |
 | Tidak ada `LULUS`, ada fail | Ada `FAIL`, tanpa PASS | `TIDAK_LULUS` | Sesuai data yang tersedia, bukan keputusan akademik final |
-| Tidak ada `LULUS` | Ada `PASS` | `PERLU_VERIFIKASI` | Konflik sumber |
+| Tidak ada rekaman SITASI | Kandidat Certiport unik dan sesuai, `PASS` | `VALID` | Nama exact, sisa nama Muhammad yang persis, atau fuzzy >=90% dengan syarat ketat |
 | Ada `PENDING`, belum ada lulus | Tidak ada PASS | `PENDING` | Belum cukup bukti selesai |
 | Salah satu | Kandidat nama ganda | `PERLU_VERIFIKASI` | Risiko salah orang |
 | Salah satu | Ujian berbeda | `PERLU_VERIFIKASI` | Kategori sama tidak cukup |
-| Tidak ada NIM SITASI | Apapun | `DATA_TIDAK_DITEMUKAN` | Jangan lewati SITASI secara otomatis |
+| Tidak ada NIM SITASI | Tidak ada kandidat Certiport yang sah | `DATA_TIDAK_DITEMUKAN` atau `PERLU_VERIFIKASI` | Kandidat ambigu hanya saran |
 | Tidak ada hasil cukup | `INCO`/kosong | `PERLU_VERIFIKASI` | Hasil Certiport belum cukup |
 
 ## 7. Status per program dan keseluruhan
 Simpan hasil per ujian (mis. MOS Word, MOS Excel, MCF AI-900), kemudian sediakan ringkasan `mos_status`, `mcf_status`, dan `validation_status` keseluruhan untuk tampilan. **Jangan menyamakan keseluruhan VALID dengan semua sertifikasi telah lengkap**, karena kewajiban program bagi tiap mahasiswa belum disahkan.
 
 Usulan prioritas status keseluruhan untuk memandu UI, **harus dikonfirmasi**:
-- Jika tidak ada NIM SITASI → `DATA_TIDAK_DITEMUKAN`.
+- Jika tidak ada NIM SITASI, periksa Certiport dengan aturan identitas terbaru; jika bukti tidak cukup gunakan `DATA_TIDAK_DITEMUKAN` atau `PERLU_VERIFIKASI`.
 - Jika ada konflik/review belum terselesaikan pada kolom yang akan diisi → `PERLU_VERIFIKASI`.
 - Jika hanya ditemukan pending yang relevan → `PENDING`.
 - Jika tidak ada bukti lulus untuk sertifikasi yang dituju dan semua selesai gagal → `TIDAK_LULUS`.

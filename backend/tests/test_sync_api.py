@@ -100,10 +100,10 @@ def setup_supabase_mock(monkeypatch):
 # Unauthenticated tests
 # ---------------------------------------------------------------------------
 
-def test_sync_endpoints_accessible_without_auth(setup_supabase_mock):
+def test_sync_endpoints_reject_without_auth(setup_supabase_mock):
     client = TestClient(app)
     resp = client.get("/api/v1/sync")
-    assert resp.status_code == 200
+    assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------

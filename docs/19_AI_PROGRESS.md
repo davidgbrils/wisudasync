@@ -713,3 +713,76 @@ Dokumen ini menjadi checkpoint singkat antarsesi. Perbarui setelah setiap peruba
   - `npm run typecheck` — PASS (0 errors).
 - **Blocker:** Tidak ada blocker teknis.
 - **Berikutnya:** Validasi visual alur filter program gabungan pada peramban web.
+
+## 2026-10-28 — Smart Sheet Detection & Fleksibilitas Kategori Certiport (MOS / MCF)
+
+- **Status:** SELESAI
+- **Tahap:** Membaca berkas `data_certiport.xlsx` baru (sheet `Results (264)` dengan kolom Sertifikasi `MOS` dan `MCF`), mengimplementasikan Smart Sheet Detection otomatis, dan fleksibilitas resolusi kategori/sub-ujian Certiport.
+- **Perubahan:**
+  - `backend/app/services/import_service.py`:
+    - Mendefinisikan `CERTIPORT_SHEET_CANDIDATES` mencakup `Results (264) Plus`, `Results (264)`, dan `Results`.
+    - Mengimplementasikan Smart Sheet Detection di `_open_validated_workbook` dan `_read_sheet` yang otomatis memeriksa kandidat sheet terdaftar dan fallback ke sheet lain yang memiliki kolom wajib (`Nama`, `Sertifikasi`, `Nilai`, `Status`).
+    - Menambahkan `_resolve_certiport_category` untuk memetakan kategori ringkas (`MOS`, `MCF`) maupun sub-ujian spesifik (Office/Excel/Word/PowerPoint -> MOS; Azure/AI-900/AZ-900 -> MCF).
+    - Menyelaraskan pembacaan nama sheet aktual (`worksheet.title`) pada `ParsedWorkbook`.
+  - `backend/tests/test_import_service.py`:
+    - Menambahkan 3 kasus uji baru (`test_parse_certiport_smart_sheet_detection_results_264`, `test_parse_certiport_smart_sheet_detection_custom_sheet_name`, dan `test_parse_certiport_resolves_subexam_names_to_program`).
+  - `docs/18_CHANGELOG.md`: Pencatatan changelog.
+- **Tes terakhir:**
+  - `backend/venv/Scripts/python.exe -m pytest` — 185 PASS (100% passed).
+  - Uji langsung `parse_certiport` terhadap berkas lokal `data_certiport.xlsx` — 1.453 baris terbaca sempurna.
+  - End-to-end matching `validate_wisuda_complete` terhadap 424 wisudawan lokal — PASS (424 diproses).
+  - `npm run build` — PASS (0 errors, production bundle optimized).
+- **Blocker:** Tidak ada blocker teknis.
+- **Berikutnya:** Siap untuk sinkronisasi live atau pengujian operasional impor via antarmuka web.
+
+# 2026-11-01 — Label hasil sinkronisasi
+
+- **Status:** SEBAGIAN (perubahan UI; pemeriksaan visual belum dijalankan).
+- **Tahap:** Ganti nama tiga KPI dan filter, serta satu badge kategori hasil per baris.
+- **Perubahan:** `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`.
+- **Tes terakhir:** `npm.cmd run typecheck` — PASS. Pemeriksaan browser belum dijalankan.
+- **Blocker:** Tidak ada untuk perubahan label. Makna `Belum Tersertifikasi` mengikuti permintaan UI dan memetakan status API `DATA_TIDAK_DITEMUKAN`.
+- **Berikutnya:** Periksa tampilan tabel dan filter pada sesi sinkronisasi di browser.
+# 2026-11-02 — SITASI lulus menjadi status utama
+
+- **Status:** SELESAI (tes unit fokus lulus; UAT browser belum dijalankan).
+- **Tahap:** Menetapkan hasil SITASI yang lulus sebagai dasar status program ketika identitas Wisuda-SITASI sudah cocok.
+- **Perubahan:** `backend/app/services/matching_service.py`; regresi di `backend/tests/test_validation_engine.py`.
+- **Aturan:** Temuan Certiport tetap tersimpan sebagai evidence, tetapi tidak menurunkan status dari `VALID` jika SITASI sudah `LULUS`.
+- **Tes terakhir:** `venv\Scripts\python.exe -m pytest tests/test_validation_engine.py -q` — 50 PASS. Pytest memberi warning cache permission (`WinError 5`); seluruh test tetap lulus.
+- **Blocker:** Tidak ada.
+- **Berikutnya:** Uji satu kasus SITASI LULUS dengan temuan Certiport lewat UI.
+# 2026-11-02 — Pencarian nama setelah variasi Muhammad
+
+- **Status:** SELESAI (kode dan test fokus lulus; UAT browser belum).
+- **Tahap:** Cari ulang Certiport memakai sisa nama persis setelah variasi awalan Muhammad, dengan syarat hasil tunggal dan NIM tidak konflik.
+- **Perubahan:** `backend/app/services/matching_service.py`, `backend/app/services/sync_service.py`, `backend/tests/test_certiport_matching.py`, `frontend/app/(dashboard)/sinkronisasi/[id]/page.tsx`, dan ADR-004.
+- **Tes terakhir:** `venv\Scripts\python.exe -m pytest tests/test_certiport_matching.py tests/test_validation_engine.py -q -p no:cacheprovider` — 87 PASS; `npm.cmd run typecheck` — PASS.
+- **Blocker:** Tidak ada untuk kode lokal. Hasil sesi lama perlu sinkronisasi ulang agar memakai aturan baru.
+- **Berikutnya:** UAT satu kasus suffix unik dan satu suffix ganda melalui UI.
+# 2026-11-02 — Audit P0–P2: perbaikan lokal
+
+- **Status:** SEBAGIAN — kode dan fixture lokal lulus; migrasi development, autentikasi dengan akun petugas, ekspor via private Storage, dan UAT belum dijalankan.
+- **Tahap:** P0 autentikasi; P1 klasifikasi MCF/MTCNA, kandidat Certiport fuzzy >=90% tanpa SITASI, kinerja importer SITASI; P2 KPI disjoint, ekspor dari workbook asal.
+- **Perubahan:** `backend/app/core/auth.py`, endpoint Auth/Sync, layanan import/matching/sync, login/proxy/API frontend, label detail, fixture test, ADR dan dokumen operasi. Tidak ada import data asli, perubahan Supabase live, commit, atau deployment.
+- **Tes terakhir:** `backend/venv/Scripts/python.exe -m pytest -q -p no:cacheprovider --tb=line` — 199 PASS (1 warning dependensi TestClient); `npm.cmd run build` — PASS; headless Chrome — redirect unauth `/sinkronisasi` ke `/login` PASS; pembacaan XLSX lokal read only — 424 Wisuda, 3.877 SITASI, 1.453 Certiport, 424 hasil, 55 VALID, 46 tindak lanjut, 323 tidak ditemukan, sekitar 12,7 detik.
+- **Blocker:** Bucket `wisuda-source` private dan akun Auth/profil aktif harus disiapkan di Supabase development berizin. ADR-007 retensi masih terbuka. Sesi lama tidak menyimpan workbook sumber sehingga harus disinkronkan ulang untuk ekspor setia format. Browser dengan login resmi dan ekspor Storage live belum diverifikasi.
+- **Berikutnya:** Terapkan migrasi hanya pada development berizin, siapkan akun petugas, lalu UAT login–sinkronisasi–ekspor memakai fixture anonim; tetapkan retensi sebelum data asli dipakai.
+
+# 2026-11-02 — Diagnostik kegagalan import
+
+- **Status:** SEBAGIAN — pemetaan pesan aman diperbaiki dan dites; akar penyebab percobaan import yang dilaporkan belum teramati.
+- **Tahap:** Memisahkan kegagalan validasi, sesi/akses, penyimpanan batch, serta status aktivasi yang belum pasti pada import SITASI/Certiport.
+- **Perubahan:** Endpoint SITASI/Certiport menangani exception storage dengan HTTP 503 dan detail aman dari service. Frontend membaca detail HTTP 503, serta menangani HTTP 401/403 secara eksplisit. Error tak terduga tetap generik.
+- **Tes terakhir:** `backend/venv/Scripts/python.exe -m pytest tests/test_import_service.py -q` — 25 PASS; `npm.cmd run typecheck` — PASS. Satu warning pytest cache karena akses folder ditolak.
+- **Blocker:** Log/status HTTP dari kegagalan awal dan koneksi Supabase runtime tidak tersedia; tidak ada live import dilakukan.
+- **Berikutnya:** Coba ulang import. Pesan baru akan membedakan batch creation, penyimpanan data, aktivasi batch, sesi login, dan izin.
+
+# 2026-11-06 — Penyediaan bucket private sumber Wisuda
+
+- **Status:** SEBAGIAN — bucket development tersedia dan konfigurasinya terverifikasi; sinkronisasi serta ekspor live belum diuji.
+- **Tahap:** Menangani pesan `Penyimpanan private sumber Wisuda belum tersedia` pada upload sumber Wisuda.
+- **Perubahan:** Bucket `wisuda-source` dibuat melalui Storage API untuk project pada `backend/.env` dengan `APP_ENV=development`; private, maksimum 10 MB, dan hanya MIME XLSX. Tidak ada perubahan kode atau migrasi SQL.
+- **Tes terakhir:** `GET /storage/v1/bucket/wisuda-source` sebelum pembuatan: HTTP 400 `Bucket not found`; sesudah pembuatan: HTTP 200, `public=false`, `file_size_limit=10485760`, MIME XLSX sesuai migrasi.
+- **Blocker:** Uji upload/sinkronisasi/ekspor dengan akun petugas dan fixture anonim belum dijalankan. Bagian Auth pada migrasi tetap belum diterapkan; ADR-007 retensi masih terbuka.
+- **Berikutnya:** Coba lagi sinkronisasi memakai fixture anonim di development, lalu uji ekspor sumber private dengan akun petugas.

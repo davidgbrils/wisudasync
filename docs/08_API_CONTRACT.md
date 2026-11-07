@@ -131,11 +131,11 @@ Mengembalikan detail baris wisuda, seluruh bukti yang diperlukan dari SITASI dan
 Nilai decision yang direncanakan: `KONFIRMASI_COCOK`, `TIDAK_COCOK`, `TUNDA_VERIFIKASI`. Backend memeriksa hak petugas dan mencatat audit. `KONFIRMASI_COCOK` memverifikasi **identitas**, bukan mengganti status ujian dari gagal menjadi lulus.
 
 ## 7. Export
-`GET /sync/{id}/export?mode=final` (default) → workbook delapan kolom Wisuda. Kolom `Sertifikasi MOS`, `Sertifikasi MCF`, dan `Title Microsoft` hanya diisi untuk status `VALID` (LULUS); status lain kosong. `mode=draft` mengembalikan data yang sama dengan awalan `[DRAFT] `.
+`GET /sync/{id}/export?mode=final` (default) → salinan workbook Wisuda asal. Hanya sel kolom sertifikasi pada baris hasil yang diubah; sheet, formula, gaya, urutan kolom, dan header lain dipertahankan. `mode=draft` menambahkan awalan `[DRAFT] ` pada nilai yang diisi tanpa mengganti nama sheet. Sesi lama tanpa sumber tersimpan mengembalikan HTTP 409 dan perlu disinkronkan ulang.
 
 Format isi yang disetujui 2026-10-23:
 - `Sertifikasi MOS`: `MOS (Lulus)` atau kosong.
-- `Sertifikasi MCF`: `MCF (Lulus)` untuk prodi 31/32 atau kosong.
+- `Sertifikasi MCF/MTCNA` (atau header lama `Sertifikasi MCF`): `MCF (Lulus)`, `MTCNA (Lulus)`, `MCF&MTCNA` bila keduanya valid, atau kosong.
 - `Title Microsoft`: `MOS`, `MCF`, `MOS, MCF`, atau kosong.
 
 `Content-Disposition` memakai nama berkas aman `wisuda_<mode>_<session-prefix>.xlsx`.

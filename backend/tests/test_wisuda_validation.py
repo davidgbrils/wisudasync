@@ -91,6 +91,7 @@ def test_validate_requires_nim_and_name_headers_and_flags_empty_sheet():
 
 def test_validate_endpoint_returns_master_sources(monkeypatch):
     from app.api.v1.endpoints import sync as sync_endpoint
+    from app.core.auth import StaffPrincipal, require_staff
 
     client = TestClient(app)
     data = workbook_bytes(rows=[[1, "55201", "Informatika", "00123", "Anonim", None, None, None]])
@@ -100,10 +101,14 @@ def test_validate_endpoint_returns_master_sources(monkeypatch):
         "get_active_import_summary",
         lambda _client, data_type: {"data_type": data_type, "status": "COMPLETED"},
     )
-    response = client.post(
-        "/api/v1/sync/validate",
-        files={"file": ("wisuda.xlsx", data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-    )
+    app.dependency_overrides[require_staff] = lambda: StaffPrincipal("staff-1", "Petugas", "staff")
+    try:
+        response = client.post(
+            "/api/v1/sync/validate",
+            files={"file": ("wisuda.xlsx", data, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+    finally:
+        app.dependency_overrides.pop(require_staff, None)
     assert response.status_code == 200
     body = response.json()
     assert body["success"] is True

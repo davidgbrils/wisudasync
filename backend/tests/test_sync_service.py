@@ -11,6 +11,7 @@ from app.services.matching_service import VALID, PERLU_VERIFIKASI, TIDAK_LULUS, 
 from app.services.sync_service import (
     SyncBatchMissingError,
     SyncExecutionError,
+    SyncStorageUnavailableError,
     SyncSessionNotFoundError,
     create_and_execute_sync,
     dedupe_evidence_for_display,
@@ -146,17 +147,44 @@ class MockResponse:
         self.count = count
 
 
+class MockBucket:
+    def __init__(self, files: dict[str, bytes]):
+        self.files = files
+
+    def upload(self, *, path: str, file: bytes, file_options: dict):
+        if path in self.files:
+            raise RuntimeError("File already exists")
+        self.files[path] = file
+
+    def download(self, path: str) -> bytes:
+        return self.files[path]
+
+    def remove(self, paths: list[str]):
+        for path in paths:
+            self.files.pop(path, None)
+
+
+class FailingBucket(MockBucket):
+    def upload(self, *, path: str, file: bytes, file_options: dict):
+        raise RuntimeError("Simulated private bucket unavailable")
+
+
+class MockStorage(dict):
+    def __init__(self):
+        super().__init__({
+            "data_imports": [], "sitasi_data": [], "certiport_data": [],
+            "sync_sessions": [], "sync_results": [], "sync_evidence": [], "review_audit": [],
+        })
+        self.files: dict[str, bytes] = {}
+
+    def from_(self, bucket: str) -> MockBucket:
+        assert bucket == "wisuda-source"
+        return MockBucket(self.files)
+
+
 class MockSupabase:
     def __init__(self):
-        self.storage: dict[str, list[dict]] = {
-            "data_imports": [],
-            "sitasi_data": [],
-            "certiport_data": [],
-            "sync_sessions": [],
-            "sync_results": [],
-            "sync_evidence": [],
-            "review_audit": [],
-        }
+        self.storage = MockStorage()
         self.fail_insert_table: str | None = None
 
     def table(self, table_name: str):
@@ -312,6 +340,14 @@ def test_sync_fails_when_active_batch_missing():
     with pytest.raises(SyncBatchMissingError) as exc_info:
         create_and_execute_sync(sb, file_buf, "wisuda.xlsx", 10 * 1024 * 1024)
     assert "SITASI" in str(exc_info.value)
+
+
+def test_sync_reports_missing_private_bucket_and_marks_session_failed(populated_supabase):
+    populated_supabase.storage.from_ = lambda _bucket: FailingBucket(populated_supabase.storage.files)
+    file_buf = create_wisuda_file([[1, "55201", "TI", "209900001", "MAHASISWA SATU", "", "", ""]])
+    with pytest.raises(SyncStorageUnavailableError):
+        create_and_execute_sync(populated_supabase, file_buf, "wisuda.xlsx", 10 * 1024 * 1024)
+    assert populated_supabase.storage["sync_sessions"][0]["status"] == "FAILED"
 
 
 # ---------------------------------------------------------------------------

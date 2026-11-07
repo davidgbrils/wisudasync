@@ -3,12 +3,21 @@
 import { useState, useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 import SidebarNav from "@/components/sidebar-nav";
 
 export default function DashboardShell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
+
+  async function signOut() {
+    await createSupabaseBrowserClient().auth.signOut();
+    router.replace("/login");
+    router.refresh();
+  }
 
   // Otomatis tutup drawer mobile saat rute berubah
   useEffect(() => {
@@ -86,7 +95,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
           <SidebarNav orientation="vertical" />
 
           <div className="mt-6 rounded-xl border border-[#DDE4E1] bg-[#F5F7F6]/80 p-3.5 text-xs">
-            <p className="font-semibold text-[#172321]">Akses Administrator ITCC</p>
+            <p className="font-semibold text-[#172321]">Akses Petugas ITCC</p>
             <p className="mt-1 text-[11px] leading-relaxed text-[#66736F]">
               Pencocokan data wisuda dengan snapshot batch master SITASI & Certiport aktif.
             </p>
@@ -100,8 +109,8 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
               AD
             </div>
             <div className="min-w-0">
-              <p className="truncate text-xs font-semibold text-[#172321]">Administrator ITCC</p>
-              <p className="truncate text-[10px] font-medium text-[#0F766E]">Role: Admin</p>
+              <p className="truncate text-xs font-semibold text-[#172321]">Petugas ITCC</p>
+              <p className="truncate text-[10px] font-medium text-[#0F766E]">Akun aktif</p>
             </div>
           </div>
         </div>
@@ -137,7 +146,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
 
         <div className="flex items-center gap-2">
           <span className="rounded-md border border-teal-200 bg-[#ECFAF8] px-2 py-1 text-xs font-semibold text-[#0F766E]">
-            Admin
+            Petugas
           </span>
         </div>
       </header>
@@ -194,10 +203,11 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
               AD
             </div>
             <div>
-              <p className="text-xs font-semibold text-[#172321]">Administrator ITCC</p>
-              <p className="text-[10px] font-medium text-[#0F766E]">Role: Admin</p>
+              <p className="text-xs font-semibold text-[#172321]">Petugas ITCC</p>
+              <p className="text-[10px] font-medium text-[#0F766E]">Akun aktif</p>
             </div>
           </div>
+          <button type="button" onClick={signOut} className="mt-3 w-full rounded-lg border border-[#BFCBC6] px-3 py-2 text-xs font-semibold text-[#0F766E] focus:outline-none focus:ring-2 focus:ring-[#0F766E]">Keluar</button>
         </div>
       </div>
 
@@ -221,6 +231,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-[#172321]">Ruang Kerja Petugas</span>
             </div>
+            <button type="button" onClick={signOut} className="rounded-md px-2 py-1 text-xs font-semibold text-[#0F766E] focus:outline-none focus:ring-2 focus:ring-[#0F766E]">Keluar</button>
           </div>
         </header>
 

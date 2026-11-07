@@ -38,6 +38,12 @@ function formatStatusLabel(status: string | null | undefined): string {
   return status.replace(/_/g, " ");
 }
 
+function formatResultLabel(status: string): string {
+  if (status === "VALID") return "Cocok";
+  if (status === "DATA_TIDAK_DITEMUKAN") return "Belum Tersertifikasi";
+  return formatStatusLabel(status);
+}
+
 function formatScoreBadges(programData: unknown) {
   if (!programData || typeof programData !== "object") return null;
   const data = programData as {
@@ -500,7 +506,7 @@ export default function SyncResultDetailPage({
               statusFilter === "" ? "border-[#0F766E] ring-2 ring-[#0F766E]/20" : "border-[#DDE4E1]"
             }`}
           >
-            <dt className="text-[11px] font-semibold uppercase tracking-wider text-[#66736F]">Total Mahasiswa</dt>
+            <dt className="text-[11px] font-semibold uppercase tracking-wider text-[#66736F]">Master Data</dt>
             <dd className="mt-1 text-2xl sm:text-3xl font-bold tabular-nums text-[#172321]">{session.total_rows.toLocaleString("id-ID")}</dd>
           </button>
           <button
@@ -510,7 +516,7 @@ export default function SyncResultDetailPage({
               statusFilter === "VALID" ? "border-emerald-600 ring-2 ring-emerald-500/30" : "border-emerald-200"
             }`}
           >
-            <dt className="text-[11px] font-semibold uppercase tracking-wider text-emerald-800">Valid (Siap)</dt>
+            <dt className="text-[11px] font-semibold uppercase tracking-wider text-emerald-800">Cocok</dt>
             <dd className="mt-1 text-2xl sm:text-3xl font-bold tabular-nums text-emerald-900">{session.total_valid.toLocaleString("id-ID")}</dd>
           </button>
           <button
@@ -530,7 +536,7 @@ export default function SyncResultDetailPage({
               statusFilter === "DATA_TIDAK_DITEMUKAN" ? "border-slate-600 ring-2 ring-slate-500/30" : "border-[#DDE4E1]"
             }`}
           >
-            <dt className="text-[11px] font-semibold uppercase tracking-wider text-[#66736F]">Tidak Ditemukan</dt>
+            <dt className="text-[11px] font-semibold uppercase tracking-wider text-[#66736F]">Belum Tersertifikasi</dt>
             <dd className="mt-1 text-2xl sm:text-3xl font-bold tabular-nums text-[#172321]">{session.total_not_found.toLocaleString("id-ID")}</dd>
           </button>
         </dl>
@@ -619,9 +625,9 @@ export default function SyncResultDetailPage({
               className="rounded-lg border border-[#DDE4E1] bg-white px-2.5 py-1.5 text-xs font-medium text-[#172321] focus:border-[#0F766E] focus:outline-none focus:ring-1 focus:ring-[#0F766E]"
             >
               <option value="">Semua Status ({session?.total_rows ?? 0})</option>
-              <option value="VALID">Valid ({session?.total_valid ?? 0})</option>
+              <option value="VALID">Cocok ({session?.total_valid ?? 0})</option>
               <option value="PERLU_VERIFIKASI">Perlu Verifikasi ({session?.total_review ?? 0})</option>
-              <option value="DATA_TIDAK_DITEMUKAN">Tidak Ditemukan ({session?.total_not_found ?? 0})</option>
+              <option value="DATA_TIDAK_DITEMUKAN">Belum Tersertifikasi ({session?.total_not_found ?? 0})</option>
             </select>
           </div>
 
@@ -697,24 +703,15 @@ export default function SyncResultDetailPage({
                     {row.nama_sitasi && row.nama_sitasi !== row.nama_wisuda && (
                       <div className="text-[11px] text-[#66736F]">SITASI: {row.nama_sitasi}</div>
                     )}
-                    {(row.validation_status === "PERLU_VERIFIKASI" || row.needs_review) && row.validation_status !== "DATA_TIDAK_DITEMUKAN" && (
-                      <span className="mt-1 inline-block rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900">
-                        Perlu Verifikasi
-                      </span>
-                    )}
-                    {row.validation_status === "DATA_TIDAK_DITEMUKAN" && (
-                      <span className="mt-1 inline-block rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
-                        Tidak Ditemukan
-                      </span>
-                    )}
+                    <span className={`mt-1 inline-block rounded border px-1.5 py-0.5 text-[10px] font-semibold ${statusBadgeClass(row.validation_status)}`}>
+                      {formatResultLabel(row.validation_status)}
+                    </span>
                   </td>
 
                   {/* Kolom Sertifikasi MOS: status + skor SITASI & Certiport */}
                   <td className="px-3 py-3 align-top">
                     <div className="space-y-1">
-                      <span className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass(row.mos_status)}`}>
-                        {formatStatusLabel(row.mos_status)}
-                      </span>
+                      <span className="text-[11px] font-medium text-[#66736F]">MOS: {formatStatusLabel(row.mos_status)}</span>
                       {formatScoreBadges(mosProg)}
                       {renderSourceScores(mosProg)}
                     </div>
@@ -724,9 +721,7 @@ export default function SyncResultDetailPage({
                   <td className="px-3 py-3 align-top">
                     {isMcfRelevantForProdi ? (
                       <div className="space-y-1">
-                        <span className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass(row.mcf_status)}`}>
-                          {formatStatusLabel(row.mcf_status)}
-                        </span>
+                        <span className="text-[11px] font-medium text-[#66736F]">MCF/MTCNA: {formatStatusLabel(row.mcf_status)}</span>
                         {formatScoreBadges(mcfProg)}
                         {renderSourceScores(mcfProg)}
                       </div>
@@ -822,12 +817,12 @@ export default function SyncResultDetailPage({
               <div className="grid grid-cols-2 gap-3 rounded-xl border border-[#DDE4E1] bg-[#F5F7F6] p-3.5">
                 <div>
                   <span className="font-semibold text-[#66736F]">Pencocokan Nama:</span>{" "}
-                  <span className="font-mono font-medium text-[#172321]">{selectedResult.name_match_type || "—"}</span>
+                  <span className="font-mono font-medium text-[#172321]">{selectedResult.name_match_type === "CERTIPORT_PREFIX_VARIANT" ? "Sisa nama cocok setelah variasi Muhammad" : selectedResult.name_match_type === "CERTIPORT_FUZZY_90" ? "Nama mirip ≥90% dan bukti Certiport sesuai" : selectedResult.name_match_type || "—"}</span>
                 </div>
                 <div>
                   <span className="font-semibold text-[#66736F]">Status Hasil:</span>{" "}
                   <span className={`inline-block rounded-full border px-2 py-0.5 font-semibold ${statusBadgeClass(selectedResult.validation_status)}`}>
-                    {selectedResult.validation_status}
+                    {formatResultLabel(selectedResult.validation_status)}
                   </span>
                 </div>
                 {selectedResult.nama_sitasi && (

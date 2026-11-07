@@ -16,8 +16,8 @@ from app.api.v1.endpoints import sync as sync_endpoint
 from app.core.auth import StaffPrincipal, require_staff
 from app.main import app
 from app.services.matching_service import PERLU_VERIFIKASI, VALID
-from app.services.sync_service import generate_sync_export_workbook
-from tests.test_sync_service import MockSupabase
+from app.services.sync_service import ExportSourceUnavailableError, generate_sync_export_workbook
+from tests.test_sync_service import MockSupabase, create_wisuda_file
 
 
 @pytest.fixture
@@ -27,6 +27,7 @@ def mock_supabase_for_export():
 
     sb.storage["sync_sessions"].append({
         "id": session_id,
+        "original_file_path": f"{session_id}.xlsx",
         "file_name": "wisuda_2026.xlsx",
         "sitasi_import_id": "sit-batch-uuid",
         "certiport_import_id": "cert-batch-uuid",
@@ -63,6 +64,19 @@ def mock_supabase_for_export():
         },
     ])
 
+    source = create_wisuda_file([
+        [1, "10", "Contoh", "209900001", "MAHASISWA SATU", "lama", "lama", "lama"],
+        [2, "10", "Contoh", "209900002", "MAHASISWA DUA", "lama", "lama", "lama"],
+    ])
+    workbook = openpyxl.load_workbook(source)
+    workbook["Wisuda"]["I1"] = "Kolom Tambahan"
+    workbook["Wisuda"]["I2"] = "=1+2"
+    workbook.create_sheet("Lampiran")["A1"] = "Tetap ada"
+    buffer = BytesIO()
+    workbook.save(buffer)
+    workbook.close()
+    sb.storage.files[f"{session_id}.xlsx"] = buffer.getvalue()
+
     return sb, session_id
 
 
@@ -80,10 +94,10 @@ def test_export_final_fills_only_passed_rows(mock_supabase_for_export):
 
     ws = wb["Wisuda"]
     rows = list(ws.iter_rows(values_only=True))
-    assert len(rows) == 3  # Header + 2 data rows
+    assert len(rows) == 3
 
     headers = rows[0]
-    assert headers[5:8] == ("Sertifikasi MOS", "Sertifikasi MCF/MTCNA", "Title")
+    assert headers[5:8] == ("Sertifikasi MOS", "Sertifikasi MCF", "Title Microsoft")
 
     # Baris lulus: terisi.
     row1 = rows[1]
@@ -98,6 +112,8 @@ def test_export_final_fills_only_passed_rows(mock_supabase_for_export):
     assert row2[5] is None
     assert row2[6] is None
     assert row2[7] is None
+    assert ws["I2"].value == "=1+2"
+    assert wb["Lampiran"]["A1"].value == "Tetap ada"
 
 
 def test_export_draft_generates_valid_workbook_with_draft_labels(mock_supabase_for_export):
@@ -105,15 +121,15 @@ def test_export_draft_generates_valid_workbook_with_draft_labels(mock_supabase_f
     buf = generate_sync_export_workbook(sb, session_id, mode="draft")
 
     wb = openpyxl.load_workbook(buf)
-    assert "Wisuda (DRAFT)" in wb.sheetnames
+    assert "Wisuda" in wb.sheetnames
     assert "Ringkasan" in wb.sheetnames
 
-    ws = wb["Wisuda (DRAFT)"]
+    ws = wb["Wisuda"]
     rows = list(ws.iter_rows(values_only=True))
     assert len(rows) == 3
 
     headers = rows[0]
-    assert headers[5:8] == ("Sertifikasi MOS", "Sertifikasi MCF/MTCNA", "Title")
+    assert headers[5:8] == ("Sertifikasi MOS", "Sertifikasi MCF", "Title Microsoft")
 
     # Baris lulus: berlabel DRAFT.
     row1 = rows[1]
@@ -129,16 +145,28 @@ def test_export_draft_generates_valid_workbook_with_draft_labels(mock_supabase_f
     assert any("DRAFT - PRATINJAU" in str(r) for r in audit_rows)
 
 
+def test_export_rejects_missing_or_mismatched_source(mock_supabase_for_export):
+    sb, session_id = mock_supabase_for_export
+    sb.storage["sync_sessions"][0]["original_file_path"] = None
+    with pytest.raises(ExportSourceUnavailableError):
+        generate_sync_export_workbook(sb, session_id)
+
+    sb.storage["sync_sessions"][0]["original_file_path"] = f"{session_id}.xlsx"
+    sb.storage["sync_results"][0]["nim"] = "000000000"
+    with pytest.raises(ExportSourceUnavailableError):
+        generate_sync_export_workbook(sb, session_id)
+
+
 # ---------------------------------------------------------------------------
 # API tests: GET /api/v1/sync/{session_id}/export
 # ---------------------------------------------------------------------------
 
-def test_api_export_accessible_without_auth(monkeypatch, mock_supabase_for_export):
+def test_api_export_rejects_without_auth(monkeypatch, mock_supabase_for_export):
     sb, session_id = mock_supabase_for_export
     monkeypatch.setattr(sync_endpoint, "get_supabase", lambda: sb)
     client = TestClient(app)
     resp = client.get(f"/api/v1/sync/{session_id}/export?mode=draft")
-    assert resp.status_code == 200
+    assert resp.status_code == 401
 
 
 def test_api_export_final_returns_200_xlsx_stream(monkeypatch, mock_supabase_for_export):
@@ -183,7 +211,7 @@ def test_api_export_draft_returns_200_xlsx_stream(monkeypatch, mock_supabase_for
 
         # Check content is readable as openpyxl workbook
         wb = openpyxl.load_workbook(BytesIO(resp.content))
-        assert "Wisuda (DRAFT)" in wb.sheetnames
+        assert "Wisuda" in wb.sheetnames
     finally:
         app.dependency_overrides.pop(require_staff, None)
 

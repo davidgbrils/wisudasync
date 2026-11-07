@@ -1,0 +1,29 @@
+{
+  "name": "wisudasync",
+  "version": "1.0.0",
+  "description": "Aplikasi web internal untuk mengimpor data master SITASI & Certiport, mengunggah Excel wisuda, mencocokkan berdasarkan NIM, memverifikasi dengan Certiport, meninjau kasus ambigu, dan mengekspor Excel. Alur: **Next.js → FastAPI → Supabase**.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "concurrently -n FRONTEND,BACKEND -c cyan,green \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev:backend": "cd backend && venv\\Scripts\\python.exe -m uvicorn app.main:app --reload"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davidgbrils/wisudasync.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/davidgbrils/wisudasync/issues"
+  },
+  "homepage": "https://github.com/davidgbrils/wisudasync#readme",
+  "devDependencies": {
+    "concurrently": "^10.0.6"
+  }
+}
